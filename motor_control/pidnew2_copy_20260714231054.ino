@@ -189,14 +189,14 @@ void parseCommand(String cmd) {
   else if (cmd.startsWith("T")) {
     String speedText = cmd.substring(1);
     bool validNumber = speedText.length() > 0;
-    int firstDigit = 0;
+    unsigned int firstDigit = 0;
     if (validNumber && (speedText.charAt(0) == '+' || speedText.charAt(0) == '-')) {
       firstDigit = 1;
     }
     if (firstDigit >= speedText.length()) {
       validNumber = false;
     }
-    for (int i = firstDigit; validNumber && i < speedText.length(); i++) {
+    for (unsigned int i = firstDigit; validNumber && i < speedText.length(); i++) {
       if (!isDigit(speedText.charAt(i))) {
         validNumber = false;
       }
