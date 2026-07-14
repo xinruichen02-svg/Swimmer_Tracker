@@ -26,9 +26,17 @@ def load_settings(path: Path | None = None) -> ControlSettings:
         if not isinstance(payload, dict):
             raise AppConfigError("配置文件顶层必须是对象")
         allowed = {field.name for field in fields(ControlSettings)}
-        settings = ControlSettings(**{key: value for key, value in payload.items() if key in allowed})
+        settings = ControlSettings(
+            **{key: value for key, value in payload.items() if key in allowed}
+        )
         return settings.validated()
-    except (OSError, json.JSONDecodeError, TypeError, SettingsError, AppConfigError) as exc:
+    except (
+        OSError,
+        json.JSONDecodeError,
+        TypeError,
+        SettingsError,
+        AppConfigError,
+    ) as exc:
         raise AppConfigError(f"无法读取配置 {target}: {exc}") from exc
 
 
@@ -46,4 +54,3 @@ def save_settings(settings: ControlSettings, path: Path | None = None) -> Path:
     except OSError as exc:
         raise AppConfigError(f"无法保存配置 {target}: {exc}") from exc
     return target
-

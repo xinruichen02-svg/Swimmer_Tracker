@@ -36,8 +36,14 @@ class BackendConfig:
             if not self.can_interface.strip() or not self.can_channel.strip():
                 raise MotorBackendError("真实 CAN 的 interface 和 channel 不能为空")
             if self.can_interface.strip().lower() == "virtual":
-                raise MotorBackendError("真实 python_can 后端不能使用 virtual interface")
-        if isinstance(self.can_bitrate, bool) or not isinstance(self.can_bitrate, int) or self.can_bitrate <= 0:
+                raise MotorBackendError(
+                    "真实 python_can 后端不能使用 virtual interface"
+                )
+        if (
+            isinstance(self.can_bitrate, bool)
+            or not isinstance(self.can_bitrate, int)
+            or self.can_bitrate <= 0
+        ):
             raise MotorBackendError("CAN 波特率必须是正整数")
         MotorControlMode(self.control_mode)
         if not math.isfinite(self.feedback_timeout_s) or self.feedback_timeout_s <= 0.0:
@@ -66,7 +72,12 @@ def _send(connection: Connection, kind: str, **payload) -> bool:
         return False
 
 
-def _status(controller: PythonMotorController, config: BackendConfig, *, stop_confirmed: bool = False) -> dict:
+def _status(
+    controller: PythonMotorController,
+    config: BackendConfig,
+    *,
+    stop_confirmed: bool = False,
+) -> dict:
     feedback = controller.last_feedback
     return {
         "state": controller.state.name,
@@ -81,7 +92,11 @@ def _status(controller: PythonMotorController, config: BackendConfig, *, stop_co
     }
 
 
-def _confirm_stop(controller: PythonMotorController, timeout_s: float = 1.0, tolerance_rpm: float = 5.0) -> bool:
+def _confirm_stop(
+    controller: PythonMotorController,
+    timeout_s: float = 1.0,
+    tolerance_rpm: float = 5.0,
+) -> bool:
     controller.stop()
     consecutive = 0
     deadline = time.monotonic() + timeout_s
@@ -118,7 +133,12 @@ def supervisor_process(
             controller.poll_feedback(0.05)
         if controller.last_feedback is None:
             raise MotorBackendError("连接后 2 秒内没有收到电机反馈")
-        if not _send(connection, "READY", config=asdict(config), status=_status(controller, config)):
+        if not _send(
+            connection,
+            "READY",
+            config=asdict(config),
+            status=_status(controller, config),
+        ):
             return
 
         last_heartbeat = time.monotonic()
@@ -144,9 +164,17 @@ def supervisor_process(
                 sequence = message.get("sequence", -1)
                 sent_at = message.get("sent_at", now)
                 if kind in ("HEARTBEAT", "TARGET"):
-                    if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence <= last_sequence:
+                    if (
+                        isinstance(sequence, bool)
+                        or not isinstance(sequence, int)
+                        or sequence <= last_sequence
+                    ):
                         continue
-                    if not isinstance(sent_at, (int, float)) or isinstance(sent_at, bool) or not math.isfinite(sent_at):
+                    if (
+                        not isinstance(sent_at, (int, float))
+                        or isinstance(sent_at, bool)
+                        or not math.isfinite(sent_at)
+                    ):
                         continue
                     if sent_at > now + 0.2 or now - sent_at > heartbeat_timeout_s:
                         continue
@@ -155,12 +183,19 @@ def supervisor_process(
                     last_heartbeat = now
                 elif kind == "TARGET":
                     target = message.get("rpm")
-                    if isinstance(target, bool) or not isinstance(target, int) or not -2047 <= target <= 2047:
+                    if (
+                        isinstance(target, bool)
+                        or not isinstance(target, int)
+                        or not -2047 <= target <= 2047
+                    ):
                         controller.fault("收到非法目标 RPM")
                     else:
                         pending_target = target
                         last_target_at = now
-                        if controller.state in (MotorControlState.ARMED, MotorControlState.RUNNING):
+                        if controller.state in (
+                            MotorControlState.ARMED,
+                            MotorControlState.RUNNING,
+                        ):
                             controller.set_target_rpm(target)
                 elif kind == "ARM":
                     try:
@@ -172,7 +207,13 @@ def supervisor_process(
                         controller.fault(f"解锁失败: {exc}")
                 elif kind == "STOP":
                     stop_confirmed = _confirm_stop(controller)
-                    _send(connection, "STOPPED", status=_status(controller, config, stop_confirmed=stop_confirmed))
+                    _send(
+                        connection,
+                        "STOPPED",
+                        status=_status(
+                            controller, config, stop_confirmed=stop_confirmed
+                        ),
+                    )
                 elif kind == "RESET":
                     try:
                         controller.reset_fault()
@@ -181,14 +222,25 @@ def supervisor_process(
                         controller.fault(f"故障复位失败: {exc}")
                 elif kind == "SHUTDOWN":
                     stop_confirmed = _confirm_stop(controller)
-                    _send(connection, "CLOSED", status=_status(controller, config, stop_confirmed=stop_confirmed))
+                    _send(
+                        connection,
+                        "CLOSED",
+                        status=_status(
+                            controller, config, stop_confirmed=stop_confirmed
+                        ),
+                    )
                     return
 
             now = time.monotonic()
-            active = controller.state in (MotorControlState.ARMED, MotorControlState.RUNNING)
+            active = controller.state in (
+                MotorControlState.ARMED,
+                MotorControlState.RUNNING,
+            )
             if active and now - last_heartbeat > heartbeat_timeout_s:
                 controller.fault("GUI 心跳超过 500 ms")
-            elif active and (last_target_at is None or now - last_target_at > target_timeout_s):
+            elif active and (
+                last_target_at is None or now - last_target_at > target_timeout_s
+            ):
                 controller.fault("目标命令超过 500 ms 未更新")
 
             if now >= next_tick:
@@ -201,7 +253,11 @@ def supervisor_process(
                     pass
                 next_fault_stop = now + 0.1
             if now >= next_status:
-                if not _send(connection, "STATUS", status=_status(controller, config, stop_confirmed=stop_confirmed)):
+                if not _send(
+                    connection,
+                    "STATUS",
+                    status=_status(controller, config, stop_confirmed=stop_confirmed),
+                ):
                     _confirm_stop(controller)
                     return
                 next_status = now + 0.05
@@ -223,4 +279,3 @@ def supervisor_process(
             connection.close()
         except Exception:
             pass
-

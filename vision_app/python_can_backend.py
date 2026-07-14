@@ -49,14 +49,22 @@ class PythonCanBackend(MotorBackend):
             raise MotorBackendError("CAN 后端已经连接")
         if not self.interface:
             raise MotorBackendError("python-can interface 不能为空")
-        if self.channel is None or (isinstance(self.channel, str) and not self.channel.strip()):
+        if self.channel is None or (
+            isinstance(self.channel, str) and not self.channel.strip()
+        ):
             raise MotorBackendError("python-can channel 不能为空")
-        if isinstance(self.bitrate, bool) or not isinstance(self.bitrate, int) or self.bitrate <= 0:
+        if (
+            isinstance(self.bitrate, bool)
+            or not isinstance(self.bitrate, int)
+            or self.bitrate <= 0
+        ):
             raise MotorBackendError("CAN 波特率必须是正整数")
         try:
             import can
         except ImportError as exc:
-            raise MotorBackendError("缺少 python-can，请先安装 requirements.txt") from exc
+            raise MotorBackendError(
+                "缺少 python-can，请先安装 requirements.txt"
+            ) from exc
         factory = self._bus_factory or can.Bus
         kwargs = dict(self._bus_kwargs)
         kwargs.update(interface=self.interface, channel=self.channel)
@@ -131,4 +139,3 @@ class PythonCanBackend(MotorBackend):
                 bus.shutdown()
             except Exception:
                 pass
-

@@ -73,4 +73,3 @@ def repeat_stop(send_zero, repeat: int, interval_s: float) -> None:
         send_zero()
         if interval_s and index + 1 < repeat:
             time.sleep(interval_s)
-

@@ -30,4 +30,3 @@ class VirtualMotorBackend(PythonCanBackend):
     def close(self) -> None:
         super().close()
         self._simulator.close()
-

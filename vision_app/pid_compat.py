@@ -21,7 +21,12 @@ class InoCompatiblePid:
         anti_windup_gain: float = 1.0,
     ) -> None:
         values = (kp, ki, kd, output_min, output_max, anti_windup_gain)
-        if not all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) for value in values):
+        if not all(
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+            for value in values
+        ):
             raise PidConfigurationError("PID 参数必须是有限数字")
         if kp < 0 or ki < 0 or kd < 0 or anti_windup_gain < 0:
             raise PidConfigurationError("PID 参数不能为负数")
@@ -42,16 +47,27 @@ class InoCompatiblePid:
 
     def update(self, setpoint: float, actual: float, dt: float) -> float:
         values = (setpoint, actual, dt)
-        if not all(isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) for value in values):
+        if not all(
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+            for value in values
+        ):
             raise PidConfigurationError("PID 输入和周期必须是有限数字")
         if dt <= 0.0:
             raise PidConfigurationError("PID 周期必须大于 0")
         error = float(setpoint) - float(actual)
-        derivative = 0.0 if self._previous_input is None else -(float(actual) - self._previous_input) / dt
+        derivative = (
+            0.0
+            if self._previous_input is None
+            else -(float(actual) - self._previous_input) / dt
+        )
         provisional_integral = self._integral + self.ki * error * dt
         unsaturated = self.kp * error + provisional_integral + self.kd * derivative
         saturated = max(self.output_min, min(self.output_max, unsaturated))
-        self._integral = provisional_integral + self.anti_windup_gain * (saturated - unsaturated) * dt
+        self._integral = (
+            provisional_integral
+            + self.anti_windup_gain * (saturated - unsaturated) * dt
+        )
         self._previous_input = float(actual)
         return saturated
-

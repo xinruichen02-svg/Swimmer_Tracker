@@ -46,7 +46,11 @@ class ArduinoSerialBackend(MotorBackend):
 
     def read_feedback(self, timeout: float = 0.0) -> MotorFeedback | None:
         try:
-            event = self.link.events.get(timeout=max(0.0, timeout)) if timeout else self.link.events.get_nowait()
+            event = (
+                self.link.events.get(timeout=max(0.0, timeout))
+                if timeout
+                else self.link.events.get_nowait()
+            )
         except queue.Empty:
             return None
         if event.kind == "error":
@@ -64,4 +68,3 @@ class ArduinoSerialBackend(MotorBackend):
 
     def close(self) -> None:
         self.link.disconnect(send_stop=True)
-

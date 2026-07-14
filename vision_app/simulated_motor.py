@@ -17,7 +17,9 @@ from vision_app.motor_backend import MotorBackendError
 class SimulatedMotor:
     """A protocol-level motor node used only on python-can's virtual bus."""
 
-    def __init__(self, channel: str | None = None, *, update_interval_s: float = 0.01) -> None:
+    def __init__(
+        self, channel: str | None = None, *, update_interval_s: float = 0.01
+    ) -> None:
         self.channel = channel or f"swimmer-{uuid.uuid4().hex}"
         self.update_interval_s = update_interval_s
         self.target_rpm = 0
@@ -34,9 +36,13 @@ class SimulatedMotor:
             import can
         except ImportError as exc:
             raise MotorBackendError("缺少 python-can，无法启动虚拟电机") from exc
-        self._bus = can.Bus(interface="virtual", channel=self.channel, receive_own_messages=False)
+        self._bus = can.Bus(
+            interface="virtual", channel=self.channel, receive_own_messages=False
+        )
         self._stop.clear()
-        self._thread = threading.Thread(target=self._run, name="simulated-motor", daemon=True)
+        self._thread = threading.Thread(
+            target=self._run, name="simulated-motor", daemon=True
+        )
         self._thread.start()
 
     def _run(self) -> None:
@@ -57,7 +63,9 @@ class SimulatedMotor:
                     if frame.arbitration_id == ACTIVATE_COMMAND_ID:
                         self.activated = True
                     else:
-                        self.target_rpm = decode_speed_command(frame) if self.activated else 0
+                        self.target_rpm = (
+                            decode_speed_command(frame) if self.activated else 0
+                        )
                 except CanProtocolError:
                     pass
             now = time.monotonic()
@@ -96,4 +104,3 @@ class SimulatedMotor:
                 bus.shutdown()
             except Exception:
                 pass
-

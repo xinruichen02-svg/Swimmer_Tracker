@@ -23,7 +23,9 @@ class CanFrame:
     is_extended_id: bool = False
 
     def __post_init__(self) -> None:
-        if isinstance(self.arbitration_id, bool) or not isinstance(self.arbitration_id, int):
+        if isinstance(self.arbitration_id, bool) or not isinstance(
+            self.arbitration_id, int
+        ):
             raise CanProtocolError("CAN ID 必须是整数")
         if not 0 <= self.arbitration_id <= 0x7FF:
             raise CanProtocolError("仅支持 11 位标准 CAN ID")
@@ -36,7 +38,11 @@ class CanFrame:
 
 
 def _motor_offset(motor_id: int) -> int:
-    if isinstance(motor_id, bool) or not isinstance(motor_id, int) or not 1 <= motor_id <= 4:
+    if (
+        isinstance(motor_id, bool)
+        or not isinstance(motor_id, int)
+        or not 1 <= motor_id <= 4
+    ):
         raise CanProtocolError("电机编号必须位于 1..4")
     return (motor_id - 1) * 2
 
@@ -88,4 +94,3 @@ def decode_speed_feedback(frame: CanFrame) -> int:
     if len(frame.data) < 6:
         raise CanProtocolError("转速反馈帧 DLC 不能小于 6")
     return int.from_bytes(frame.data[4:6], byteorder="big", signed=True)
-
