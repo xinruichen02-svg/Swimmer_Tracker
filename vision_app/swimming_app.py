@@ -9,6 +9,7 @@ from tkinter import messagebox, ttk
 import cv2
 from PIL import Image, ImageTk
 
+from vision_app.app_config import AppConfigError, load_settings, save_settings
 from vision_app.control_core import (
     ControlInputError,
     MotionSolution,
@@ -17,9 +18,12 @@ from vision_app.control_core import (
     RpmRateLimiter,
     solve_motion,
 )
-from vision_app.motor_link import MotorLink, MotorLinkError, MotorTelemetry
+from vision_app.motor_link import MotorTelemetry
+from vision_app.motor_backend import MotorBackendError
+from vision_app.motor_supervisor import BackendConfig
 from vision_app.safety import AppState, SafetyController, SafetyInputs, StateTransitionError
 from vision_app.settings import CalibrationConfirmation, ControlSettings, SettingsError
+from vision_app.supervisor_client import MotorSupervisorClient, SupervisorClientError
 from vision_app.vision_tracker import (
     TargetSelectionCancelled,
     TrackingLostError,
@@ -56,10 +60,15 @@ class SwimControlApp:
         self.root.geometry("1420x900")
         self.root.minsize(1180, 760)
 
-        self.motor = MotorLink()
+        self.motor = MotorSupervisorClient()
         self.vision = VisionTracker()
         self.safety = SafetyController()
-        self.settings = ControlSettings().validated()
+        self._config_warning: str | None = None
+        try:
+            self.settings = load_settings()
+        except AppConfigError as exc:
+            self.settings = ControlSettings().validated()
+            self._config_warning = str(exc)
         self.calibration = CalibrationConfirmation()
         self.estimator: RelativeDisplacementEstimator | None = None
         self.rate_limiter = RpmRateLimiter(self.settings.max_rpm_rate_per_s)
@@ -74,16 +83,21 @@ class SwimControlApp:
         self._fault_popup_shown = False
 
         self.camera_source_var = tk.StringVar(value="0")
-        self.serial_port_var = tk.StringVar(value="")
-        self.pixels_per_meter_var = tk.StringVar(value="120.0")
-        self.rpm_per_mps_var = tk.StringVar(value="1.0")
-        self.camera_sign_var = tk.StringVar(value="+1")
-        self.motor_sign_var = tk.StringVar(value="+1")
-        self.rpm_limit_var = tk.StringVar(value="2047")
-        self.rpm_rate_var = tk.StringVar(value="500.0")
+        self.backend_var = tk.StringVar(value=self.settings.backend)
+        self.serial_port_var = tk.StringVar(value=self.settings.serial_port)
+        self.can_interface_var = tk.StringVar(value=self.settings.can_interface)
+        self.can_channel_var = tk.StringVar(value=self.settings.can_channel)
+        self.can_bitrate_var = tk.StringVar(value=str(self.settings.can_bitrate))
+        self.control_mode_var = tk.StringVar(value=self.settings.control_mode)
+        self.pixels_per_meter_var = tk.StringVar(value=str(self.settings.pixels_per_meter))
+        self.rpm_per_mps_var = tk.StringVar(value=str(self.settings.rpm_per_mps))
+        self.camera_sign_var = tk.StringVar(value=f"{self.settings.camera_axis_sign:+d}")
+        self.motor_sign_var = tk.StringVar(value=f"{self.settings.motor_axis_sign:+d}")
+        self.rpm_limit_var = tk.StringVar(value=str(self.settings.rpm_limit))
+        self.rpm_rate_var = tk.StringVar(value=str(self.settings.max_rpm_rate_per_s))
         self.calibration_status_var = tk.StringVar(value="未确认")
 
-        self.banner_var = tk.StringVar(value="未连接：请填写串口和摄像头源。")
+        self.banner_var = tk.StringVar(value="未连接：默认虚拟模式，不会驱动真实机器人。")
         self.detail_var = tk.StringVar(value="系统默认保持停止，不会自动启动电机。")
         self.state_var = tk.StringVar(value=STATE_LABELS[self.safety.state])
         self.offset_var = tk.StringVar(value="-- px / -- m")
@@ -93,8 +107,13 @@ class SwimControlApp:
         self.target_rpm_var = tk.StringVar(value="0 RPM")
         self.actual_rpm_var = tk.StringVar(value="-- RPM")
         self.feedback_age_var = tk.StringVar(value="-- ms")
+        self.backend_badge_var = tk.StringVar(value="仿真模式｜不会驱动真实机器人")
+        self.supervisor_state_var = tk.StringVar(value="未启动")
 
         self._build_ui()
+        self._on_backend_selected()
+        if self._config_warning:
+            self.detail_var.set(self._config_warning + "；已使用安全默认值。")
         self._install_setting_traces()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.root.after(30, self._camera_tick)
@@ -132,7 +151,7 @@ class SwimControlApp:
         left.rowconfigure(0, weight=1)
         self.video_label = tk.Label(
             left,
-            text="请先连接串口并打开摄像头",
+            text="请先连接电机后端并打开摄像头",
             bg="#0f172a",
             fg="#e2e8f0",
             font=("Microsoft YaHei UI", 14),
@@ -165,16 +184,50 @@ class SwimControlApp:
         connection = ttk.LabelFrame(right, text="1. 设备连接", padding=10)
         connection.grid(row=0, column=0, sticky="ew")
         connection.columnconfigure(1, weight=1)
-        ttk.Label(connection, text="串口（如 COM3）").grid(row=0, column=0, sticky="w")
-        ttk.Entry(connection, textvariable=self.serial_port_var).grid(row=0, column=1, sticky="ew", padx=(8, 0))
-        ttk.Label(connection, text="摄像头源").grid(row=1, column=0, sticky="w", pady=(8, 0))
-        ttk.Entry(connection, textvariable=self.camera_source_var).grid(
-            row=1, column=1, sticky="ew", padx=(8, 0), pady=(8, 0)
+        self.backend_badge = tk.Label(
+            connection,
+            textvariable=self.backend_badge_var,
+            bg="#dbeafe",
+            fg="#1d4ed8",
+            padx=8,
+            pady=5,
+            font=("Microsoft YaHei UI", 9, "bold"),
         )
-        self.connect_button = ttk.Button(connection, text="连接串口（自动先停止）", command=self.connect_serial)
-        self.connect_button.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(10, 0))
-        self.disconnect_button = ttk.Button(connection, text="断开串口", command=self.disconnect_serial)
-        self.disconnect_button.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        self.backend_badge.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        ttk.Label(connection, text="控制后端").grid(row=1, column=0, sticky="w")
+        backend_box = ttk.Combobox(
+            connection,
+            textvariable=self.backend_var,
+            values=("virtual", "arduino_serial", "python_can"),
+            state="readonly",
+        )
+        backend_box.grid(row=1, column=1, sticky="ew", padx=(8, 0))
+        backend_box.bind("<<ComboboxSelected>>", self._on_backend_selected)
+        ttk.Label(connection, text="控制模式").grid(row=2, column=0, sticky="w", pady=(6, 0))
+        ttk.Combobox(
+            connection,
+            textvariable=self.control_mode_var,
+            values=("driver_pid", "ino_pid_compat"),
+            state="readonly",
+        ).grid(row=2, column=1, sticky="ew", padx=(8, 0), pady=(6, 0))
+        ttk.Label(connection, text="串口（如 COM3）").grid(row=3, column=0, sticky="w", pady=(6, 0))
+        ttk.Entry(connection, textvariable=self.serial_port_var).grid(row=3, column=1, sticky="ew", padx=(8, 0), pady=(6, 0))
+        ttk.Label(connection, text="CAN interface").grid(row=4, column=0, sticky="w", pady=(6, 0))
+        ttk.Entry(connection, textvariable=self.can_interface_var).grid(row=4, column=1, sticky="ew", padx=(8, 0), pady=(6, 0))
+        ttk.Label(connection, text="CAN channel").grid(row=5, column=0, sticky="w", pady=(6, 0))
+        ttk.Entry(connection, textvariable=self.can_channel_var).grid(row=5, column=1, sticky="ew", padx=(8, 0), pady=(6, 0))
+        ttk.Label(connection, text="CAN bitrate").grid(row=6, column=0, sticky="w", pady=(6, 0))
+        ttk.Entry(connection, textvariable=self.can_bitrate_var).grid(row=6, column=1, sticky="ew", padx=(8, 0), pady=(6, 0))
+        ttk.Label(connection, text="摄像头源").grid(row=7, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(connection, textvariable=self.camera_source_var).grid(
+            row=7, column=1, sticky="ew", padx=(8, 0), pady=(8, 0)
+        )
+        self.connect_button = ttk.Button(connection, text="启动安全监督并连接", command=self.connect_serial)
+        self.connect_button.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        self.disconnect_button = ttk.Button(connection, text="停车并断开后端", command=self.disconnect_serial)
+        self.disconnect_button.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        ttk.Label(connection, text="监督进程").grid(row=10, column=0, sticky="w", pady=(6, 0))
+        ttk.Label(connection, textvariable=self.supervisor_state_var).grid(row=10, column=1, sticky="e", pady=(6, 0))
 
         calibration = ttk.LabelFrame(right, text="2. 标定与方向", padding=10)
         calibration.grid(row=1, column=0, sticky="ew", pady=(10, 0))
@@ -224,7 +277,7 @@ class SwimControlApp:
         ttk.Label(status_box, textvariable=self.detail_var, wraplength=390, justify="left").pack(anchor="w", pady=(6, 0))
         ttk.Label(
             status_box,
-            text="紧急情况：立即点击“停止电机”；通信完全断开时 Arduino 看门狗将在 500 ms 后停机。",
+            text="紧急情况：立即点击“停止电机”。软件监督能处理 GUI 失联，但系统/USB 整体失效仍需驱动器超时或物理急停。",
             foreground="#b91c1c",
             wraplength=390,
             justify="left",
@@ -241,6 +294,36 @@ class SwimControlApp:
         ):
             variable.trace_add("write", self._on_setting_edited)
 
+    def _on_backend_selected(self, _event=None) -> None:
+        backend = self.backend_var.get()
+        if backend == "virtual":
+            self.backend_badge_var.set("仿真模式｜不会驱动真实机器人")
+            self.backend_badge.configure(bg="#dbeafe", fg="#1d4ed8")
+            self.detail_var.set("当前选择虚拟 CAN：适合完整软件测试，不会自动切换到真实设备。")
+        elif backend == "arduino_serial":
+            self.backend_badge_var.set("真实模式｜Arduino 串口 + INO")
+            self.backend_badge.configure(bg="#fee2e2", fg="#b91c1c")
+            self.detail_var.set("真实串口模式：必须具备物理急停或驱动器通信超时保护。")
+        else:
+            self.backend_badge_var.set("真实模式｜Python 直接 USB-CAN")
+            self.backend_badge.configure(bg="#fee2e2", fg="#b91c1c")
+            self.detail_var.set("真实 CAN 模式：请填写适配器对应的 interface/channel，不会失败后回退仿真。")
+
+    def _backend_config_from_ui(self) -> BackendConfig:
+        try:
+            bitrate = int(self.can_bitrate_var.get().strip())
+        except ValueError as exc:
+            raise SettingsError("CAN bitrate 必须是整数") from exc
+        return BackendConfig(
+            backend=self.backend_var.get(),
+            serial_port=self.serial_port_var.get().strip(),
+            can_interface=self.can_interface_var.get().strip(),
+            can_channel=self.can_channel_var.get().strip(),
+            can_bitrate=bitrate,
+            control_mode=self.control_mode_var.get(),
+            feedback_timeout_s=0.5,
+        ).validated()
+
     def _on_setting_edited(self, *_args) -> None:
         if self._closing:
             return
@@ -256,6 +339,12 @@ class SwimControlApp:
         try:
             settings = replace(
                 self.settings,
+                backend=self.backend_var.get(),
+                serial_port=self.serial_port_var.get().strip(),
+                can_interface=self.can_interface_var.get().strip(),
+                can_channel=self.can_channel_var.get().strip(),
+                can_bitrate=int(self.can_bitrate_var.get().strip()),
+                control_mode=self.control_mode_var.get(),
                 pixels_per_meter=float(self.pixels_per_meter_var.get().strip()),
                 rpm_per_mps=float(self.rpm_per_mps_var.get().strip()),
                 camera_axis_sign=int(self.camera_sign_var.get()),
@@ -264,7 +353,7 @@ class SwimControlApp:
                 max_rpm_rate_per_s=float(self.rpm_rate_var.get().strip()),
             )
         except ValueError as exc:
-            raise SettingsError("标定、方向、限幅和变化率必须填写有效数字") from exc
+            raise SettingsError("标定、方向、限幅、变化率和 CAN 波特率必须填写有效数字") from exc
         return settings.validated()
 
     def confirm_calibration(self) -> None:
@@ -288,6 +377,7 @@ class SwimControlApp:
         if not messagebox.askyesno("确认实测标定", prompt, icon="warning"):
             return
         self.settings = settings
+        self._save_current_settings()
         self.calibration.confirm(settings)
         self.calibration_status_var.set("已确认")
         self.rate_limiter = RpmRateLimiter(settings.max_rpm_rate_per_s)
@@ -299,35 +389,61 @@ class SwimControlApp:
         else:
             self.detail_var.set("标定已确认。下一步请打开摄像头并框选运动员。")
 
+    def _save_current_settings(self) -> None:
+        try:
+            save_settings(self.settings)
+        except AppConfigError as exc:
+            self.detail_var.set(f"设置已应用，但持久化失败：{exc}")
+
     def connect_serial(self) -> None:
         if self.motor.connected:
-            messagebox.showinfo("提示", "串口已经连接。")
-            return
-        port = self.serial_port_var.get().strip()
-        if not port:
-            messagebox.showerror("缺少串口", "请填写串口名称，例如 COM3。")
+            messagebox.showinfo("提示", "电机安全监督已经连接。")
             return
         try:
-            self.motor.connect(port)
+            config = self._backend_config_from_ui()
+        except (SettingsError, MotorBackendError, ValueError) as exc:
+            messagebox.showerror("后端配置无效", str(exc))
+            return
+        if config.backend != "virtual":
+            warning = (
+                "即将连接真实电机后端。\n\n"
+                "独立监督进程只能处理 GUI 崩溃或心跳中断，不能保证 Windows、USB 或驱动整体失效时继续停车。\n\n"
+                "请确认现场有可触达的物理急停，或电机驱动器已经配置通信超时自动停车。是否继续？"
+            )
+            if not messagebox.askyesno("真实电机安全确认", warning, icon="warning"):
+                self.detail_var.set("用户取消真实后端连接，电机保持未连接状态。")
+                return
+        try:
+            self.motor.connect(config)
             self.safety.serial_connected()
-        except (MotorLinkError, StateTransitionError) as exc:
-            messagebox.showerror("串口连接失败", str(exc))
+        except (SupervisorClientError, StateTransitionError, MotorBackendError) as exc:
+            messagebox.showerror("电机后端连接失败", str(exc))
             return
         self.latest_telemetry = None
-        self.detail_var.set("串口已连接并发送停止命令。等待电机反馈后再继续。")
+        try:
+            self.settings = self._settings_from_ui()
+            self._save_current_settings()
+        except SettingsError:
+            pass
+        self.supervisor_state_var.set("CONNECTED_SAFE")
+        if config.backend == "virtual":
+            self.detail_var.set("虚拟 CAN 已连接并完成零速启动；当前不会驱动真实机器人。")
+        else:
+            self.detail_var.set("真实后端已连接，监督进程已先发送零速。等待新鲜反馈后再继续。")
 
     def disconnect_serial(self) -> None:
         stop_sent = self.motor.disconnect(send_stop=True)
         self.vision.release()
-        self.safety.disconnected("用户断开串口")
+        self.safety.disconnected("用户断开电机后端")
         self._reset_motion()
-        self.video_label.configure(image="", text="串口已断开，电机应由 Arduino 看门狗保持停止")
+        self.supervisor_state_var.set("已关闭")
+        self.video_label.configure(image="", text="电机后端已断开，系统保持零速安全状态")
         self._photo = None
-        self.detail_var.set("已断开串口。" + ("断开前已发送停止命令。" if stop_sent else "未确认停止命令已送达。"))
+        self.detail_var.set("已断开电机后端。" + ("断开前已请求并确认停车流程。" if stop_sent else "未确认停止命令已送达。"))
 
     def open_camera(self) -> None:
         if not self.motor.connected:
-            messagebox.showwarning("操作顺序", "请先连接串口；连接时 APP 会先发送停止命令。")
+            messagebox.showwarning("操作顺序", "请先启动安全监督并连接电机后端；连接时会先发送零速。")
             return
         if self.safety.state in (AppState.RUNNING, AppState.FAULT):
             messagebox.showwarning("不能打开", "请先停止运行或确认故障。")
@@ -404,7 +520,8 @@ class SwimControlApp:
         source_text = self.camera_source_var.get().strip()
         confirmation = (
             "强电机启动确认\n\n"
-            f"串口：{self.serial_port_var.get().strip()}\n"
+            f"后端：{self.backend_var.get()}\n"
+            f"控制模式：{self.control_mode_var.get()}\n"
             f"摄像头：{source_text}\n"
             f"像素/米：{settings.pixels_per_meter}\n"
             f"RPM/(米/秒)：{settings.rpm_per_mps}\n"
@@ -414,7 +531,8 @@ class SwimControlApp:
             f"当前相对速度：{solution.relative_speed_mps:+.3f} m/s\n"
             f"运动员估算速度：{solution.swimmer_speed_mps:+.3f} m/s\n"
             f"原始目标：{solution.raw_target_rpm:+.1f} RPM\n\n"
-            "启动后请随时准备点击“停止电机”。是否确认周围无人、方向正确并启动？"
+            "启动后请随时准备点击“停止电机”。真实模式还要求物理急停或驱动器通信超时可用。\n"
+            "是否确认周围无人、方向正确并启动？"
         )
         if not messagebox.askyesno("确认启动闭环", confirmation, icon="warning"):
             self.detail_var.set("用户取消启动，电机保持停止。")
@@ -426,10 +544,10 @@ class SwimControlApp:
             self.motor.send_target_rpm(initial_rpm)
             self.motor.send_start()
             self.last_command_rpm = initial_rpm
-        except (StateTransitionError, ControlInputError, MotorLinkError) as exc:
+        except (StateTransitionError, ControlInputError, SupervisorClientError) as exc:
             self._trigger_fault(f"启动失败：{exc}")
             return
-        self.detail_var.set("闭环已启动：APP 正以 20 Hz 更新目标，Arduino 看门狗负责失联停机。")
+        self.detail_var.set("闭环已启动：APP 以 20 Hz 更新目标，独立监督进程以 10 ms 周期控制并执行 500 ms 失联停车。")
 
     def manual_stop(self) -> None:
         fault_remains_latched = self.safety.state is AppState.FAULT
@@ -438,15 +556,15 @@ class SwimControlApp:
             try:
                 self.motor.send_stop()
                 stop_sent = True
-            except MotorLinkError as exc:
-                self.detail_var.set(f"停止命令发送失败：{exc}；等待 Arduino 看门狗停机。")
+            except SupervisorClientError as exc:
+                self.detail_var.set(f"停止命令发送失败：{exc}；请立即使用物理急停并检查设备。")
         self.safety.manual_stop()
         self.vision.release()
         self._reset_motion()
         self.video_label.configure(image="", text="电机已请求停止。请重新打开摄像头并框选目标。")
         self._photo = None
         if fault_remains_latched:
-            delivery = "已再次发送停止命令。" if stop_sent else "停止命令未确认送达，等待 Arduino 看门狗。"
+            delivery = "已再次发送停止命令。" if stop_sent else "停止命令未确认送达，请使用物理急停。"
             self.detail_var.set(f"{delivery} 故障仍保持锁定，请点击“确认故障并复位”。")
         elif stop_sent:
             self.detail_var.set("已发送停止命令。重新启动前必须重新打开摄像头并框选运动员。")
@@ -456,12 +574,14 @@ class SwimControlApp:
             messagebox.showinfo("提示", "当前没有待确认故障。")
             return
         try:
+            if self.motor.connected:
+                self.motor.reset_fault()
             self.safety.acknowledge_fault()
-        except StateTransitionError as exc:
+        except (StateTransitionError, SupervisorClientError) as exc:
             messagebox.showerror("故障复位失败", str(exc))
             return
         if not self.motor.connected:
-            self.safety.disconnected("故障确认后串口仍未连接")
+            self.safety.disconnected("故障确认后电机后端仍未连接")
         self.vision.release()
         self._reset_motion()
         self._fault_popup_shown = False
@@ -563,9 +683,10 @@ class SwimControlApp:
             if event.kind == "telemetry" and event.telemetry is not None:
                 self.latest_telemetry = event.telemetry
                 self.actual_rpm_var.set(f"{event.telemetry.actual_rpm:+.1f} RPM")
+            elif event.kind == "status":
+                self.supervisor_state_var.set(event.message or "--")
             elif event.kind == "error":
                 self._trigger_fault(event.message)
-                self.motor.disconnect(send_stop=False)
         self.root.after(50, self._poll_motor_events)
 
     def _control_tick(self) -> None:
@@ -586,14 +707,14 @@ class SwimControlApp:
                         self.last_command_rpm = command
                         suffix = "（已限幅）" if solution.saturated else ""
                         self.target_rpm_var.set(f"{command:+d} RPM {suffix}")
-                    except (ControlInputError, MotorLinkError) as exc:
+                    except (ControlInputError, SupervisorClientError) as exc:
                         self._trigger_fault(f"控制命令发送失败：{exc}")
         interval_ms = max(10, int(round(self.settings.command_interval_s * 1000)))
         self.root.after(interval_ms, self._control_tick)
 
     def _runtime_fault_reason(self, now: float) -> str | None:
         if not self.motor.connected:
-            return "运行中串口断开"
+            return "运行中电机监督进程断开"
         telemetry = self.latest_telemetry
         if telemetry is None or now - telemetry.received_at > self.settings.telemetry_timeout_s:
             return "电机反馈超时"
@@ -629,6 +750,7 @@ class SwimControlApp:
             directions_valid=(active_settings.camera_axis_sign in (-1, 1) and active_settings.motor_axis_sign in (-1, 1)),
             motion_solution_valid=self.latest_solution is not None,
             offline_source=bool(source is not None and source.offline_file),
+            real_backend=self.motor.is_real,
         )
 
     def _trigger_fault(self, reason: str) -> None:
@@ -638,14 +760,14 @@ class SwimControlApp:
             try:
                 self.motor.send_stop()
                 stop_sent = True
-            except MotorLinkError:
+            except SupervisorClientError:
                 stop_sent = False
         self.vision.clear_target()
         self.rate_limiter.reset()
         self.estimator = None
         self.latest_solution = None
         if first_fault:
-            delivery = "已发送停止命令。" if stop_sent else "停止命令未确认送达，等待 Arduino 500 ms 看门狗。"
+            delivery = "已发送停止命令。" if stop_sent else "停止命令未确认送达，请立即使用物理急停。"
             self.detail_var.set(f"故障：{reason}。{delivery} 请确认故障后重新连接/框选，系统不会自动恢复。")
             if not self._fault_popup_shown:
                 self._fault_popup_shown = True
@@ -678,7 +800,7 @@ class SwimControlApp:
         self.banner.configure(fg=foreground, bg=background)
 
         if state is AppState.DISCONNECTED:
-            message = "未连接：请填写串口，连接后系统会先发送停止命令。"
+            message = "未连接：请选择控制后端；默认虚拟模式不会驱动真实机器人。"
         elif state is AppState.STOPPED:
             message = "电机已停止：请确认标定，然后打开摄像头。"
         elif state is AppState.CAMERA_READY:
@@ -687,7 +809,8 @@ class SwimControlApp:
             blockers = self._safety_inputs().start_blockers()
             message = "目标已锁定，可以启动。" if not blockers else "尚不能启动：" + "；".join(blockers)
         elif state is AppState.RUNNING:
-            message = f"闭环运行中：当前发送 {self.last_command_rpm:+d} RPM；保持准备随时停止。"
+            mode = "真实" if self.motor.is_real else "仿真"
+            message = f"{mode}闭环运行中：当前发送 {self.last_command_rpm:+d} RPM；保持准备随时停止。"
         else:
             message = f"故障锁定：{self.safety.fault_reason or '未知故障'}；电机已请求停止。"
         self.banner_var.set(message)
@@ -737,7 +860,7 @@ class SwimControlApp:
         stop_sent = self.motor.disconnect(send_stop=True)
         self.vision.release()
         if not stop_sent and self.safety.state is AppState.RUNNING:
-            messagebox.showwarning("停止未确认", "未确认停止命令送达，请等待 Arduino 看门狗停机并检查设备。")
+            messagebox.showwarning("停止未确认", "未确认停止命令送达，请立即使用物理急停并检查设备。")
         self.root.destroy()
 
     def run(self) -> None:

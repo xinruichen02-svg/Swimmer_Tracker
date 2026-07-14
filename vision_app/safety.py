@@ -27,11 +27,12 @@ class SafetyInputs:
     directions_valid: bool = False
     motion_solution_valid: bool = False
     offline_source: bool = False
+    real_backend: bool = True
 
     def start_blockers(self) -> tuple[str, ...]:
         blockers: list[str] = []
         if not self.serial_connected:
-            blockers.append("串口未连接")
+            blockers.append("电机后端未连接")
         if not self.telemetry_fresh:
             blockers.append("尚未收到新鲜电机反馈")
         if not self.camera_ready:
@@ -44,7 +45,7 @@ class SafetyInputs:
             blockers.append("方向配置无效")
         if not self.motion_solution_valid:
             blockers.append("运动解算尚未就绪")
-        if self.offline_source:
+        if self.offline_source and self.real_backend:
             blockers.append("离线视频禁止启动真实电机")
         return tuple(blockers)
 

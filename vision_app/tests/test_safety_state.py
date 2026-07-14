@@ -25,7 +25,7 @@ class StartBlockerTests(unittest.TestCase):
     def test_all_missing_conditions_are_reported(self):
         inputs = SafetyInputs()
         blockers = inputs.start_blockers()
-        self.assertIn("串口未连接", blockers)
+        self.assertIn("电机后端未连接", blockers)
         self.assertIn("尚未收到新鲜电机反馈", blockers)
         self.assertIn("摄像头未就绪", blockers)
         self.assertIn("尚未框选并锁定运动员", blockers)
@@ -36,6 +36,9 @@ class StartBlockerTests(unittest.TestCase):
     def test_offline_video_blocks_real_motor_start(self):
         blockers = ready_inputs(offline_source=True).start_blockers()
         self.assertIn("离线视频禁止启动真实电机", blockers)
+
+    def test_offline_video_is_allowed_in_virtual_mode(self):
+        self.assertEqual(ready_inputs(offline_source=True, real_backend=False).start_blockers(), ())
 
 
 class SafetyControllerTests(unittest.TestCase):

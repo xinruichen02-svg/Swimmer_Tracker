@@ -21,6 +21,12 @@ def _finite_number(name: str, value: object, *, positive: bool = False) -> float
 
 @dataclass(frozen=True)
 class ControlSettings:
+    backend: str = "virtual"
+    serial_port: str = ""
+    can_interface: str = ""
+    can_channel: str = ""
+    can_bitrate: int = 1_000_000
+    control_mode: str = "driver_pid"
     pixels_per_meter: float = 120.0
     rpm_per_mps: float = 1.0
     camera_axis_sign: int = 1
@@ -35,6 +41,12 @@ class ControlSettings:
     max_offset_fraction: float = 0.45
 
     def validated(self) -> "ControlSettings":
+        if self.backend not in ("virtual", "arduino_serial", "python_can"):
+            raise SettingsError("backend 必须是 virtual、arduino_serial 或 python_can")
+        if self.control_mode not in ("driver_pid", "ino_pid_compat"):
+            raise SettingsError("control_mode 必须是 driver_pid 或 ino_pid_compat")
+        if isinstance(self.can_bitrate, bool) or not isinstance(self.can_bitrate, int) or self.can_bitrate <= 0:
+            raise SettingsError("can_bitrate 必须是正整数")
         _finite_number("pixels_per_meter", self.pixels_per_meter, positive=True)
         _finite_number("rpm_per_mps", self.rpm_per_mps, positive=True)
         _finite_number("max_rpm_rate_per_s", self.max_rpm_rate_per_s, positive=True)
