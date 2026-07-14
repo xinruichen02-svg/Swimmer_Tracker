@@ -19,14 +19,14 @@ v_relative = v_swimmer - v_robot
 v_swimmer = v_robot + v_relative
 ```
 
-视觉测得目标相对准星的带符号横向偏移：
+摄像头直接测得的原始物理量是目标相对机器人（以画面中央准星为参考）的带符号横向位移，而不是相对速度：
 
 ```text
 offset_px = target_center_x - frame_center_x
 offset_m = camera_axis_sign * offset_px / pixels_per_meter
 ```
 
-通过最近一段 `(monotonic_time, offset_m)` 样本的线性拟合斜率计算相对速度，避免直接相邻帧差分放大跟踪框抖动：
+相对速度是派生量，必须通过最近一段 `(monotonic_time, offset_m)` 相对位移样本的线性拟合斜率计算。任何模块都不得把单帧 `offset_px` 或 `offset_m` 直接当作速度。线性拟合用于避免直接相邻帧差分放大跟踪框抖动：
 
 ```text
 v_relative = slope(offset_m versus monotonic_time)
@@ -54,7 +54,7 @@ Python 不对中心偏移执行 P、I 或 D 修正。十字准星用于建立偏
 vision_app/
 ├── swimming_gui.py       唯一启动入口
 ├── swimming_app.py       Tkinter 界面、提示和状态协调
-├── vision_tracker.py     摄像头、手动 ROI、CSRT 和单轴测量
+├── vision_tracker.py     摄像头、手动 ROI、CSRT 和单轴相对位移测量
 ├── control_core.py       纯速度解算、换算、限幅和变化率限制
 ├── motor_link.py         pyserial 连接、命令编码和遥测解析
 ├── settings.py           类型化配置、校验及安全确认状态
@@ -70,6 +70,7 @@ vision_app/
 - 打开源后读取首帧，由用户手动框选唯一目标。
 - 使用 CSRT 更新目标框，但控制计算只使用目标框中心横坐标。
 - 始终绘制画面中央十字准星、目标中心、偏移方向和安全区域。
+- 对外输出带单调时间戳的相对位移测量，不直接声明或输出未经时间序列计算的相对速度。
 - 选框后的第一帧只建立时间和位置基准，不生成相对速度。
 - 跟踪失败、帧中断、时间戳无效或目标越界时返回明确的无效测量，不沿用最后一次测量。
 
@@ -250,7 +251,7 @@ v_relative=0.0                 -> v_swimmer=v_robot
 - Python 控制逻辑完全依据已确认 INO 串口协议。
 - 旧 Python PID 和重复视觉脚本不再存在。
 - APP 能手动填写摄像头源、手动框选目标并显示中心准星。
-- APP 能读取实际 RPM、计算带符号相对速度和运动员速度，并发送限幅目标 RPM。
+- APP 能读取实际 RPM、测量带符号相对位移、由相对位移时间序列计算相对速度和运动员速度，并发送限幅目标 RPM。
 - Python 中不存在 PID 控制器。
 - 全部故障路径都会请求停止，INO 具备独立失联看门狗。
 - APP 对操作顺序、启动风险、禁用原因和故障恢复提供明确中文提示。
