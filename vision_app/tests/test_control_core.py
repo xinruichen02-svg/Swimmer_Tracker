@@ -5,6 +5,7 @@ from vision_app.control_core import (
     ControlInputError,
     RelativeDisplacementEstimator,
     RpmRateLimiter,
+    constant_speed_to_rpm,
     solve_motion,
 )
 
@@ -112,6 +113,19 @@ class MotionSolverTests(unittest.TestCase):
         for kwargs in invalid_calls:
             with self.subTest(kwargs=kwargs), self.assertRaises(ControlInputError):
                 solve_motion(**kwargs)
+
+
+class ConstantSpeedTests(unittest.TestCase):
+    def test_signed_speed_converts_with_motor_direction(self):
+        self.assertEqual(constant_speed_to_rpm(0.5, 120.0, 1, 2047), 60)
+        self.assertEqual(constant_speed_to_rpm(0.5, 120.0, -1, 2047), -60)
+        self.assertEqual(constant_speed_to_rpm(-0.5, 120.0, -1, 2047), 60)
+
+    def test_out_of_range_and_too_small_targets_are_rejected(self):
+        with self.assertRaises(ControlInputError):
+            constant_speed_to_rpm(20.0, 120.0, 1, 2047)
+        with self.assertRaises(ControlInputError):
+            constant_speed_to_rpm(0.001, 120.0, 1, 2047)
 
 
 class RpmRateLimiterTests(unittest.TestCase):

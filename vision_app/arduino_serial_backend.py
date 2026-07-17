@@ -8,7 +8,7 @@ from vision_app.motor_backend import (
     MotorFeedback,
     validate_target_rpm,
 )
-from vision_app.motor_link import MotorLink, MotorLinkError
+from vision_app.motor_link import MotorLink, MotorLinkError, MotorProtocolError
 
 
 class ArduinoSerialBackend(MotorBackend):
@@ -34,6 +34,13 @@ class ArduinoSerialBackend(MotorBackend):
     def activate(self) -> None:
         try:
             self.link.send_target_rpm(0)
+            self.link.send_stop()
+        except MotorLinkError as exc:
+            raise MotorBackendError(str(exc)) from exc
+
+    def start(self) -> None:
+        try:
+            self.link.send_target_rpm(0)
             self.link.send_start()
         except MotorLinkError as exc:
             raise MotorBackendError(str(exc)) from exc
@@ -42,6 +49,12 @@ class ArduinoSerialBackend(MotorBackend):
         try:
             self.link.send_target_rpm(validate_target_rpm(rpm))
         except MotorLinkError as exc:
+            raise MotorBackendError(str(exc)) from exc
+
+    def set_pid_tunings(self, kp: float, ki: float, kd: float) -> None:
+        try:
+            self.link.send_pid_tunings(kp, ki, kd)
+        except (MotorLinkError, MotorProtocolError) as exc:
             raise MotorBackendError(str(exc)) from exc
 
     def read_feedback(self, timeout: float = 0.0) -> MotorFeedback | None:

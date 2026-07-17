@@ -99,6 +99,11 @@ class PythonCanBackend(MotorBackend):
         self._send_frame(encode_activate())
         self.stop(repeat=3)
 
+    def start(self) -> None:
+        # Direct CAN backends are activated during connect; motion begins only
+        # when the controller sends a non-zero target after arming.
+        return None
+
     def set_target_rpm(self, rpm: int) -> None:
         self._send_frame(encode_speed_command(validate_target_rpm(rpm)))
 

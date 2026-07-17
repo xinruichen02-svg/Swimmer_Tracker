@@ -46,6 +46,11 @@ class BackendConfig:
         ):
             raise MotorBackendError("CAN 波特率必须是正整数")
         MotorControlMode(self.control_mode)
+        if (
+            self.backend == "arduino_serial"
+            and self.control_mode != MotorControlMode.DRIVER_PID.value
+        ):
+            raise MotorBackendError("Arduino串口后端必须使用driver_pid，PID由INO本地执行")
         if not math.isfinite(self.feedback_timeout_s) or self.feedback_timeout_s <= 0.0:
             raise MotorBackendError("反馈超时必须是正有限数")
         return self
@@ -163,7 +168,7 @@ def supervisor_process(
                 kind = message.get("kind")
                 sequence = message.get("sequence", -1)
                 sent_at = message.get("sent_at", now)
-                if kind in ("HEARTBEAT", "TARGET"):
+                if kind in ("HEARTBEAT", "TARGET", "PID"):
                     if (
                         isinstance(sequence, bool)
                         or not isinstance(sequence, int)
@@ -197,6 +202,17 @@ def supervisor_process(
                             MotorControlState.RUNNING,
                         ):
                             controller.set_target_rpm(target)
+                elif kind == "PID":
+                    if config.backend != "arduino_serial":
+                        _send(connection, "PID_REJECTED", message="仅Arduino串口后端支持INO在线PID调参")
+                    else:
+                        try:
+                            controller.backend.set_pid_tunings(
+                                message.get("kp"), message.get("ki"), message.get("kd")
+                            )
+                            _send(connection, "PID_APPLIED", message="INO PID参数已发送")
+                        except MotorBackendError as exc:
+                            controller.fault(f"PID参数发送失败: {exc}")
                 elif kind == "ARM":
                     try:
                         controller.arm(now)

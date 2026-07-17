@@ -49,6 +49,19 @@ class SafetyInputs:
             blockers.append("离线视频禁止启动真实电机")
         return tuple(blockers)
 
+    def constant_speed_blockers(self) -> tuple[str, ...]:
+        """Requirements for fixed-speed motion, which intentionally ignores vision."""
+        blockers: list[str] = []
+        if not self.serial_connected:
+            blockers.append("电机后端未连接")
+        if not self.telemetry_fresh:
+            blockers.append("尚未收到新鲜电机反馈")
+        if not self.calibration_confirmed:
+            blockers.append("换算值尚未确认")
+        if not self.directions_valid:
+            blockers.append("方向配置无效")
+        return tuple(blockers)
+
 
 class SafetyController:
     def __init__(self) -> None:
@@ -89,6 +102,15 @@ class SafetyController:
         if self.state is not AppState.TARGET_LOCKED:
             raise StateTransitionError("只有目标已锁定状态才能启动闭环")
         blockers = inputs.start_blockers()
+        if blockers:
+            raise StateTransitionError("；".join(blockers))
+        self.state = AppState.RUNNING
+        self._stop_requested = False
+
+    def start_constant_speed(self, inputs: SafetyInputs) -> None:
+        if self.state not in (AppState.STOPPED, AppState.CAMERA_READY, AppState.TARGET_LOCKED):
+            raise StateTransitionError("当前状态不能启动定速巡航")
+        blockers = inputs.constant_speed_blockers()
         if blockers:
             raise StateTransitionError("；".join(blockers))
         self.state = AppState.RUNNING

@@ -15,16 +15,16 @@ from vision_app.can_protocol import (
 
 
 class CanProtocolTests(unittest.TestCase):
-    def test_activation_frame_matches_ino_motor_two_layout(self):
+    def test_activation_frame_matches_ino_motor_one_layout(self):
         frame = encode_activate()
         self.assertEqual(frame.arbitration_id, ACTIVATE_COMMAND_ID)
-        self.assertEqual(frame.data, bytes.fromhex("ff00ffffffffffff"))
+        self.assertEqual(frame.data, bytes.fromhex("00ffffffffffffff"))
         self.assertFalse(frame.is_extended_id)
 
     def test_speed_command_matches_ino_big_endian_slot(self):
         self.assertEqual(encode_speed_command(300).arbitration_id, SPEED_COMMAND_ID)
-        self.assertEqual(encode_speed_command(300).data, bytes.fromhex("ffff012cffffffff"))
-        self.assertEqual(encode_speed_command(-300).data, bytes.fromhex("fffffed4ffffffff"))
+        self.assertEqual(encode_speed_command(300).data, bytes.fromhex("012cffffffffffff"))
+        self.assertEqual(encode_speed_command(-300).data, bytes.fromhex("fed4ffffffffffff"))
         self.assertEqual(decode_speed_command(encode_speed_command(-2047)), -2047)
         self.assertEqual(decode_speed_command(encode_speed_command(2047)), 2047)
 

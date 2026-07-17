@@ -45,6 +45,8 @@ class ControlSettings:
             raise SettingsError("backend 必须是 virtual、arduino_serial 或 python_can")
         if self.control_mode not in ("driver_pid", "ino_pid_compat"):
             raise SettingsError("control_mode 必须是 driver_pid 或 ino_pid_compat")
+        if self.backend == "arduino_serial" and self.control_mode != "driver_pid":
+            raise SettingsError("Arduino串口后端必须使用driver_pid，PID由INO本地执行")
         if isinstance(self.can_bitrate, bool) or not isinstance(self.can_bitrate, int) or self.can_bitrate <= 0:
             raise SettingsError("can_bitrate 必须是正整数")
         _finite_number("pixels_per_meter", self.pixels_per_meter, positive=True)

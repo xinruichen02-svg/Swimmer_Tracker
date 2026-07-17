@@ -75,6 +75,11 @@ class PythonMotorController:
         feedback = self.last_feedback or self.poll_feedback(0.0)
         if feedback is None or timestamp - feedback.received_at > self.feedback_timeout_s:
             raise MotorControlError("没有新鲜电机反馈，禁止解锁")
+        try:
+            self.backend.start()
+        except MotorBackendError as exc:
+            self.fault(f"启动失败: {exc}")
+            raise MotorControlError(f"启动失败: {exc}") from exc
         self.target_rpm = 0
         self.last_output_rpm = 0
         self.pid.reset()

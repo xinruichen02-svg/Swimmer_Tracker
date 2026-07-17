@@ -2,11 +2,20 @@ import multiprocessing
 import time
 import unittest
 
+from vision_app.motor_backend import MotorBackendError
 from vision_app.motor_supervisor import BackendConfig, supervisor_process
 from vision_app.supervisor_client import MotorSupervisorClient
 
 
 class MotorSupervisorTests(unittest.TestCase):
+    def test_arduino_serial_rejects_double_pid_mode(self):
+        with self.assertRaises(MotorBackendError):
+            BackendConfig(
+                backend="arduino_serial",
+                serial_port="COM_TEST",
+                control_mode="ino_pid_compat",
+            ).validated()
+
     def test_virtual_supervisor_runs_and_confirms_stop(self):
         client = MotorSupervisorClient()
         try:

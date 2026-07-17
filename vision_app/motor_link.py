@@ -37,6 +37,25 @@ def encode_target_rpm(rpm: int) -> bytes:
     return f"T{rpm}\n".encode("ascii")
 
 
+def _validate_pid_gain(name: str, value: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise MotorProtocolError(f"{name} 必须是非负有限数")
+    gain = float(value)
+    if not math.isfinite(gain) or gain < 0.0:
+        raise MotorProtocolError(f"{name} 必须是非负有限数")
+    return gain
+
+
+def encode_pid_tunings(kp: float, ki: float, kd: float) -> tuple[bytes, bytes, bytes]:
+    """Encode the three online-tuning commands implemented by pidnew2.ino."""
+    values = (
+        ("KP", _validate_pid_gain("Kp", kp)),
+        ("KI", _validate_pid_gain("Ki", ki)),
+        ("KD", _validate_pid_gain("Kd", kd)),
+    )
+    return tuple(f"{name}={value:.9g}\n".encode("ascii") for name, value in values)
+
+
 @dataclass(frozen=True)
 class MotorTelemetry:
     target_rpm: float
@@ -185,6 +204,10 @@ class MotorLink:
 
     def send_target_rpm(self, rpm: int) -> None:
         self._send(encode_target_rpm(rpm))
+
+    def send_pid_tunings(self, kp: float, ki: float, kd: float) -> None:
+        for payload in encode_pid_tunings(kp, ki, kd):
+            self._send(payload)
 
     def _reader_loop(self) -> None:
         while not self._stop_reader.is_set():

@@ -123,6 +123,28 @@ class MotionSolution:
     saturated: bool
 
 
+def constant_speed_to_rpm(
+    speed_mps: float,
+    rpm_per_mps: float,
+    motor_axis_sign: int,
+    rpm_limit: int,
+) -> int:
+    """Convert a signed robot linear-speed setpoint into a safe motor RPM command."""
+    speed = _finite_real("constant_speed_mps", speed_mps)
+    conversion = _positive_real("rpm_per_mps", rpm_per_mps)
+    sign = _axis_sign("motor_axis_sign", motor_axis_sign)
+    if isinstance(rpm_limit, bool) or not isinstance(rpm_limit, int) or not 1 <= rpm_limit <= 2047:
+        raise ControlInputError("rpm_limit 必须是 1..2047 范围内的整数")
+    raw_rpm = sign * speed * conversion
+    if abs(raw_rpm) > rpm_limit:
+        max_speed = rpm_limit / conversion
+        raise ControlInputError(f"定速目标超出RPM上限；当前最大线速度约为 ±{max_speed:.3f} m/s")
+    command = int(round(raw_rpm))
+    if speed != 0.0 and command == 0:
+        raise ControlInputError("定速目标过小，换算后不足 1 RPM")
+    return command
+
+
 def solve_motion(
     actual_rpm: float,
     relative_speed_mps: float,

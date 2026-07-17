@@ -40,6 +40,15 @@ class StartBlockerTests(unittest.TestCase):
     def test_offline_video_is_allowed_in_virtual_mode(self):
         self.assertEqual(ready_inputs(offline_source=True, real_backend=False).start_blockers(), ())
 
+    def test_constant_speed_does_not_require_camera_or_target(self):
+        inputs = ready_inputs(
+            camera_ready=False,
+            target_locked=False,
+            motion_solution_valid=False,
+            offline_source=True,
+        )
+        self.assertEqual(inputs.constant_speed_blockers(), ())
+
 
 class SafetyControllerTests(unittest.TestCase):
     def test_normal_path_and_manual_stop(self):
@@ -60,6 +69,16 @@ class SafetyControllerTests(unittest.TestCase):
         controller.target_locked()
         with self.assertRaises(StateTransitionError):
             controller.start(ready_inputs(telemetry_fresh=False))
+
+    def test_constant_speed_starts_from_stopped_without_camera(self):
+        controller = SafetyController()
+        controller.serial_connected()
+        controller.start_constant_speed(
+            ready_inputs(camera_ready=False, target_locked=False, motion_solution_valid=False)
+        )
+        self.assertEqual(controller.state, AppState.RUNNING)
+        self.assertTrue(controller.manual_stop())
+        self.assertEqual(controller.state, AppState.STOPPED)
 
     def test_camera_close_returns_to_stopped(self):
         controller = SafetyController()

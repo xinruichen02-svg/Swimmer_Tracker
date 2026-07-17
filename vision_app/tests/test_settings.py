@@ -32,6 +32,13 @@ class SettingsTests(unittest.TestCase):
             with self.subTest(settings=settings), self.assertRaises(SettingsError):
                 settings.validated()
 
+        with self.assertRaises(SettingsError):
+            ControlSettings(
+                backend="arduino_serial",
+                serial_port="COM_TEST",
+                control_mode="ino_pid_compat",
+            ).validated()
+
 
 if __name__ == "__main__":
     unittest.main()

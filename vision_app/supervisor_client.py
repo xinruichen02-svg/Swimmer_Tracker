@@ -156,9 +156,16 @@ class MotorSupervisorClient:
                 self._startup_error = str(message.get("message") or "监督进程未知错误")
                 self.events.put(MotorLinkEvent("error", self._startup_error, now))
                 self._ready.set()
+            elif kind == "PID_APPLIED":
+                self.events.put(MotorLinkEvent("notice", str(message.get("message") or "INO PID参数已发送"), now))
+            elif kind == "PID_REJECTED":
+                self.events.put(MotorLinkEvent("warning", str(message.get("message") or "PID参数未发送"), now))
 
     def send_target_rpm(self, rpm: int) -> None:
         self._send("TARGET", rpm=rpm)
+
+    def send_pid_tunings(self, kp: float, ki: float, kd: float) -> None:
+        self._send("PID", kp=kp, ki=ki, kd=kd)
 
     def send_start(self) -> None:
         self._send("ARM")

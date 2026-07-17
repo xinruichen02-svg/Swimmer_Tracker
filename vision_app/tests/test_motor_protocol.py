@@ -8,6 +8,7 @@ from vision_app.motor_link import (
     encode_start,
     encode_stop,
     encode_target_rpm,
+    encode_pid_tunings,
     MotorLink,
     MotorLinkEvent,
 )
@@ -27,6 +28,15 @@ class CommandEncodingTests(unittest.TestCase):
         for value in (1.5, True, 2048, -2048, "12"):
             with self.subTest(value=value), self.assertRaises(MotorProtocolError):
                 encode_target_rpm(value)
+
+    def test_pid_tunings_match_ino_online_commands(self):
+        self.assertEqual(
+            encode_pid_tunings(1.0, 0.05, 0.02),
+            (b"KP=1\n", b"KI=0.05\n", b"KD=0.02\n"),
+        )
+        for values in ((-1, 0, 0), (float("nan"), 0, 0), (True, 0, 0)):
+            with self.subTest(values=values), self.assertRaises(MotorProtocolError):
+                encode_pid_tunings(*values)
 
 
 class TelemetryParserTests(unittest.TestCase):
@@ -99,6 +109,9 @@ class MotorLinkIntegrationTests(unittest.TestCase):
         link.send_target_rpm(0)
         link.send_start()
         self.assertEqual(fake.writes[-2:], [b"T0\n", b"S\n"])
+
+        link.send_pid_tunings(1.0, 0.05, 0.02)
+        self.assertEqual(fake.writes[-3:], [b"KP=1\n", b"KI=0.05\n", b"KD=0.02\n"])
 
         self.assertTrue(link.disconnect(send_stop=True))
         self.assertEqual(fake.writes[-1], b"P\n")

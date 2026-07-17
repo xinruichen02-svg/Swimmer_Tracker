@@ -40,8 +40,18 @@ class MotorBackend(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def start(self) -> None:
+        """Explicitly enable motion after feedback and safety checks pass."""
+        raise NotImplementedError
+
+    @abstractmethod
     def set_target_rpm(self, rpm: int) -> None:
         raise NotImplementedError
+
+    def set_pid_tunings(self, kp: float, ki: float, kd: float) -> None:
+        """Apply controller gains when the selected backend supports online tuning."""
+        del kp, ki, kd
+        raise MotorBackendError(f"{self.name} 后端不支持在线 PID 调参")
 
     @abstractmethod
     def read_feedback(self, timeout: float = 0.0) -> MotorFeedback | None:

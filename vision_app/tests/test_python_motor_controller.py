@@ -29,6 +29,9 @@ class FakeBackend(MotorBackend):
     def activate(self):
         self.commands.append("activate")
 
+    def start(self):
+        self.commands.append("start")
+
     def set_target_rpm(self, rpm):
         self.commands.append(rpm)
 
@@ -57,11 +60,14 @@ class PythonMotorControllerTests(unittest.TestCase):
         backend = FakeBackend()
         controller = PythonMotorController(backend)
         controller.connect()
+        self.assertEqual(backend.commands, ["activate"])
         with self.assertRaises(MotorControlError):
             controller.arm(now=1.0)
+        self.assertEqual(backend.commands, ["activate"])
         backend.feedback.append(MotorFeedback(12.0, 1.0))
         controller.poll_feedback()
         controller.arm(now=1.1)
+        self.assertEqual(backend.commands[-1], "start")
         controller.set_target_rpm(100)
         controller.tick(now=1.11)
         self.assertEqual(controller.state, MotorControlState.RUNNING)

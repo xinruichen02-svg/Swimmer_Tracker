@@ -34,9 +34,26 @@ class ArduinoBackendTests(unittest.TestCase):
         backend = ArduinoSerialBackend("COM_TEST", link=link)
         backend.connect()
         backend.activate()
+        self.assertNotIn(b"S\n", serials[0].writes)
+        backend.start()
         backend.set_target_rpm(25)
+        backend.set_pid_tunings(1.0, 0.05, 0.02)
         backend.stop()
-        self.assertEqual(serials[0].writes, [b"P\n", b"T0\n", b"S\n", b"T25\n", b"P\n"])
+        self.assertEqual(
+            serials[0].writes,
+            [
+                b"P\n",
+                b"T0\n",
+                b"P\n",
+                b"T0\n",
+                b"S\n",
+                b"T25\n",
+                b"KP=1\n",
+                b"KI=0.05\n",
+                b"KD=0.02\n",
+                b"P\n",
+            ],
+        )
         backend.close()
 
     def test_adapter_rejects_missing_port(self):
