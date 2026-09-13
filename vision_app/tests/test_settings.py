@@ -33,11 +33,9 @@ class SettingsTests(unittest.TestCase):
                 settings.validated()
 
         with self.assertRaises(SettingsError):
-            ControlSettings(
-                backend="arduino_serial",
-                serial_port="COM_TEST",
-                control_mode="ino_pid_compat",
-            ).validated()
+            ControlSettings(backend="arduino_serial").validated()
+        with self.assertRaises(SettingsError):
+            ControlSettings(tcp_port=70000).validated()
 
 
 if __name__ == "__main__":

@@ -5,52 +5,35 @@ import time
 from dataclasses import asdict, dataclass
 from multiprocessing.connection import Connection
 
-from vision_app.arduino_serial_backend import ArduinoSerialBackend
-from vision_app.can_protocol import CAN_BITRATE
 from vision_app.motor_backend import MotorBackend, MotorBackendError
-from vision_app.python_can_backend import PythonCanBackend
 from vision_app.python_motor_controller import (
     MotorControlMode,
     MotorControlState,
     PythonMotorController,
 )
 from vision_app.virtual_motor_backend import VirtualMotorBackend
+from vision_app.tcp_motor_backend import TcpMotorBackend
 
 
 @dataclass(frozen=True)
 class BackendConfig:
     backend: str = "virtual"
-    serial_port: str = ""
-    can_interface: str = ""
-    can_channel: str = ""
-    can_bitrate: int = CAN_BITRATE
+    tcp_host: str = "192.168.1.177"
+    tcp_port: int = 8888
     control_mode: str = MotorControlMode.DRIVER_PID.value
     feedback_timeout_s: float = 0.5
 
     def validated(self) -> "BackendConfig":
-        if self.backend not in ("virtual", "arduino_serial", "python_can"):
-            raise MotorBackendError("后端必须是 virtual、arduino_serial 或 python_can")
-        if self.backend == "arduino_serial" and not self.serial_port.strip():
-            raise MotorBackendError("Arduino 串口不能为空")
-        if self.backend == "python_can":
-            if not self.can_interface.strip() or not self.can_channel.strip():
-                raise MotorBackendError("真实 CAN 的 interface 和 channel 不能为空")
-            if self.can_interface.strip().lower() == "virtual":
-                raise MotorBackendError(
-                    "真实 python_can 后端不能使用 virtual interface"
-                )
-        if (
-            isinstance(self.can_bitrate, bool)
-            or not isinstance(self.can_bitrate, int)
-            or self.can_bitrate <= 0
-        ):
-            raise MotorBackendError("CAN 波特率必须是正整数")
+        if self.backend not in ("virtual", "tcp"):
+            raise MotorBackendError("后端必须是 virtual 或 tcp")
+        if self.backend == "tcp":
+            if not isinstance(self.tcp_host, str) or not self.tcp_host.strip():
+                raise MotorBackendError("TCP 主机地址不能为空")
+            if isinstance(self.tcp_port, bool) or not isinstance(self.tcp_port, int) or not 1 <= self.tcp_port <= 65535:
+                raise MotorBackendError("TCP 端口必须位于 1..65535")
         MotorControlMode(self.control_mode)
-        if (
-            self.backend == "arduino_serial"
-            and self.control_mode != MotorControlMode.DRIVER_PID.value
-        ):
-            raise MotorBackendError("Arduino串口后端必须使用driver_pid，PID由INO本地执行")
+        if self.control_mode != MotorControlMode.DRIVER_PID.value:
+            raise MotorBackendError("TCP/virtual 后端固定使用 driver_pid")
         if not math.isfinite(self.feedback_timeout_s) or self.feedback_timeout_s <= 0.0:
             raise MotorBackendError("反馈超时必须是正有限数")
         return self
@@ -60,13 +43,7 @@ def build_backend(config: BackendConfig) -> MotorBackend:
     config.validated()
     if config.backend == "virtual":
         return VirtualMotorBackend()
-    if config.backend == "arduino_serial":
-        return ArduinoSerialBackend(config.serial_port)
-    return PythonCanBackend(
-        interface=config.can_interface,
-        channel=config.can_channel,
-        bitrate=config.can_bitrate,
-    )
+    return TcpMotorBackend(config.tcp_host, config.tcp_port)
 
 
 def _send(connection: Connection, kind: str, **payload) -> bool:
@@ -92,6 +69,7 @@ def _status(
         "output_rpm": controller.last_output_rpm,
         "actual_rpm": None if feedback is None else feedback.actual_rpm,
         "feedback_at": None if feedback is None else feedback.received_at,
+        "feedback_mode": "measured" if controller.backend.supports_feedback else "command_estimate",
         "fault": controller.fault_reason,
         "stop_confirmed": stop_confirmed,
     }
@@ -103,6 +81,8 @@ def _confirm_stop(
     tolerance_rpm: float = 5.0,
 ) -> bool:
     controller.stop()
+    if not controller.backend.supports_feedback:
+        return False
     consecutive = 0
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
@@ -133,11 +113,12 @@ def supervisor_process(
             feedback_timeout_s=config.feedback_timeout_s,
         )
         controller.connect()
-        deadline = time.monotonic() + 2.0
-        while controller.last_feedback is None and time.monotonic() < deadline:
-            controller.poll_feedback(0.05)
-        if controller.last_feedback is None:
-            raise MotorBackendError("连接后 2 秒内没有收到电机反馈")
+        if controller.backend.supports_feedback:
+            deadline = time.monotonic() + 2.0
+            while controller.last_feedback is None and time.monotonic() < deadline:
+                controller.poll_feedback(0.05)
+            if controller.last_feedback is None:
+                raise MotorBackendError("连接后 2 秒内没有收到电机反馈")
         if not _send(
             connection,
             "READY",
@@ -203,16 +184,7 @@ def supervisor_process(
                         ):
                             controller.set_target_rpm(target)
                 elif kind == "PID":
-                    if config.backend != "arduino_serial":
-                        _send(connection, "PID_REJECTED", message="仅Arduino串口后端支持INO在线PID调参")
-                    else:
-                        try:
-                            controller.backend.set_pid_tunings(
-                                message.get("kp"), message.get("ki"), message.get("kd")
-                            )
-                            _send(connection, "PID_APPLIED", message="INO PID参数已发送")
-                        except MotorBackendError as exc:
-                            controller.fault(f"PID参数发送失败: {exc}")
+                    _send(connection, "PID_REJECTED", message="TCP/virtual 后端不支持在线 PID 调参")
                 elif kind == "ARM":
                     try:
                         controller.arm(now)

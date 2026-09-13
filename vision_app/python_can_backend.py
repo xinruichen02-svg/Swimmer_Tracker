@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-from typing import Any
 
 from vision_app.can_protocol import (
     CAN_BITRATE,
@@ -31,7 +30,7 @@ class PythonCanBackend(MotorBackend):
         channel: str | int,
         bitrate: int = CAN_BITRATE,
         bus_factory=None,
-        bus_kwargs: dict[str, Any] | None = None,
+        bus_kwargs: dict[str, object] | None = None,
     ) -> None:
         self.interface = interface.strip() if isinstance(interface, str) else ""
         self.channel = channel

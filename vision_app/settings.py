@@ -22,15 +22,19 @@ def _finite_number(name: str, value: object, *, positive: bool = False) -> float
 @dataclass(frozen=True)
 class ControlSettings:
     backend: str = "virtual"
-    serial_port: str = ""
-    can_interface: str = ""
-    can_channel: str = ""
-    can_bitrate: int = 1_000_000
+    tcp_host: str = "192.168.1.177"
+    tcp_port: int = 8888
     control_mode: str = "driver_pid"
+    operation_mode: str = "manual_speed"
+    follow_mode: str = "position_follow"
     pixels_per_meter: float = 120.0
     rpm_per_mps: float = 1.0
     camera_axis_sign: int = 1
     motor_axis_sign: int = 1
+    target_offset_px: float = 0.0
+    position_kp: float = 1.0
+    deadband_m: float = 0.05
+    max_speed_mps: float = 1.0
     rpm_limit: int = 2047
     max_rpm_rate_per_s: float = 500.0
     displacement_window_size: int = 7
@@ -41,14 +45,18 @@ class ControlSettings:
     max_offset_fraction: float = 0.45
 
     def validated(self) -> "ControlSettings":
-        if self.backend not in ("virtual", "arduino_serial", "python_can"):
-            raise SettingsError("backend 必须是 virtual、arduino_serial 或 python_can")
-        if self.control_mode not in ("driver_pid", "ino_pid_compat"):
-            raise SettingsError("control_mode 必须是 driver_pid 或 ino_pid_compat")
-        if self.backend == "arduino_serial" and self.control_mode != "driver_pid":
-            raise SettingsError("Arduino串口后端必须使用driver_pid，PID由INO本地执行")
-        if isinstance(self.can_bitrate, bool) or not isinstance(self.can_bitrate, int) or self.can_bitrate <= 0:
-            raise SettingsError("can_bitrate 必须是正整数")
+        if self.backend not in ("virtual", "tcp"):
+            raise SettingsError("backend 必须是 virtual 或 tcp")
+        if not isinstance(self.tcp_host, str) or not self.tcp_host.strip():
+            raise SettingsError("tcp_host 不能为空")
+        if isinstance(self.tcp_port, bool) or not isinstance(self.tcp_port, int) or not 1 <= self.tcp_port <= 65535:
+            raise SettingsError("tcp_port 必须位于 1..65535")
+        if self.control_mode != "driver_pid":
+            raise SettingsError("control_mode 必须是 driver_pid")
+        if self.operation_mode not in ("manual_rpm", "manual_speed", "position_follow", "velocity_estimate_follow"):
+            raise SettingsError("operation_mode 无效")
+        if self.follow_mode not in ("position_follow", "velocity_estimate_follow"):
+            raise SettingsError("follow_mode 无效")
         _finite_number("pixels_per_meter", self.pixels_per_meter, positive=True)
         _finite_number("rpm_per_mps", self.rpm_per_mps, positive=True)
         _finite_number("max_rpm_rate_per_s", self.max_rpm_rate_per_s, positive=True)
@@ -56,6 +64,12 @@ class ControlSettings:
         _finite_number("vision_timeout_s", self.vision_timeout_s, positive=True)
         _finite_number("telemetry_timeout_s", self.telemetry_timeout_s, positive=True)
         _finite_number("command_interval_s", self.command_interval_s, positive=True)
+        _finite_number("position_kp", self.position_kp, positive=True)
+        _finite_number("max_speed_mps", self.max_speed_mps, positive=True)
+        _finite_number("target_offset_px", self.target_offset_px)
+        deadband = _finite_number("deadband_m", self.deadband_m)
+        if deadband < 0:
+            raise SettingsError("deadband_m 不能小于 0")
         offset_fraction = _finite_number("max_offset_fraction", self.max_offset_fraction, positive=True)
         if offset_fraction >= 0.5:
             raise SettingsError("max_offset_fraction 必须小于 0.5")
@@ -79,16 +93,20 @@ class ControlSettings:
 @dataclass
 class CalibrationConfirmation:
     confirmed: bool = False
-    _signature: tuple[float, float, int, int] | None = None
+    _signature: tuple[float, ...] | None = None
 
     @staticmethod
-    def signature(settings: ControlSettings) -> tuple[float, float, int, int]:
+    def signature(settings: ControlSettings) -> tuple[float, ...]:
         settings.validated()
         return (
             float(settings.pixels_per_meter),
             float(settings.rpm_per_mps),
             settings.camera_axis_sign,
             settings.motor_axis_sign,
+            float(settings.target_offset_px),
+            float(settings.position_kp),
+            float(settings.deadband_m),
+            float(settings.max_speed_mps),
         )
 
     def confirm(self, settings: ControlSettings) -> None:

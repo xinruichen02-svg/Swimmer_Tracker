@@ -6,7 +6,6 @@ import re
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any
 
 
 SERIAL_BAUD_RATE = 115200
@@ -135,7 +134,7 @@ class MotorLink:
     def __init__(self, serial_factory=None) -> None:
         self.events: queue.Queue[MotorLinkEvent] = queue.Queue()
         self._serial_factory = serial_factory
-        self._serial: Any | None = None
+        self._serial: object | None = None
         self._reader_thread: threading.Thread | None = None
         self._stop_reader = threading.Event()
         self._write_lock = threading.Lock()

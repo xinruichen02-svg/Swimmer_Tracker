@@ -13,6 +13,8 @@ INO_PATH = (
 class InoWatchdogSourceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        if not INO_PATH.exists():
+            raise unittest.SkipTest("外部下位机源码不在当前工作区")
         cls.source = INO_PATH.read_text(encoding="utf-8")
 
     def test_verified_can_protocol_constants_are_preserved(self):

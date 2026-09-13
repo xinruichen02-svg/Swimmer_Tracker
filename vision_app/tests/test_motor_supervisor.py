@@ -1,4 +1,6 @@
 import multiprocessing
+import socket
+import threading
 import time
 import unittest
 
@@ -8,13 +10,9 @@ from vision_app.supervisor_client import MotorSupervisorClient
 
 
 class MotorSupervisorTests(unittest.TestCase):
-    def test_arduino_serial_rejects_double_pid_mode(self):
+    def test_legacy_serial_backend_is_rejected(self):
         with self.assertRaises(MotorBackendError):
-            BackendConfig(
-                backend="arduino_serial",
-                serial_port="COM_TEST",
-                control_mode="ino_pid_compat",
-            ).validated()
+            BackendConfig(backend="arduino_serial").validated()
 
     def test_virtual_supervisor_runs_and_confirms_stop(self):
         client = MotorSupervisorClient()
@@ -39,10 +37,54 @@ class MotorSupervisorTests(unittest.TestCase):
         finally:
             client.disconnect(send_stop=True)
 
+    def test_tcp_supervisor_runs_without_waiting_for_feedback(self):
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        port = listener.getsockname()[1]
+        received = bytearray()
+        done = threading.Event()
+
+        def serve():
+            connection, _ = listener.accept()
+            connection.settimeout(0.1)
+            try:
+                while not done.is_set():
+                    try:
+                        chunk = connection.recv(4096)
+                    except socket.timeout:
+                        continue
+                    if not chunk:
+                        break
+                    received.extend(chunk)
+            finally:
+                connection.close()
+
+        thread = threading.Thread(target=serve, daemon=True)
+        thread.start()
+        client = MotorSupervisorClient()
+        try:
+            client.connect(BackendConfig(backend="tcp", tcp_host="127.0.0.1", tcp_port=port))
+            self.assertEqual(client.last_status.get("feedback_mode"), "command_estimate")
+            client.send_target_rpm(50)
+            client.send_start()
+            deadline = time.monotonic() + 2
+            while b"T50\n" not in received and time.monotonic() < deadline:
+                client.send_target_rpm(50)
+                time.sleep(0.05)
+            self.assertIn(b"P\nT0\nT0\nS\n", received)
+            self.assertIn(b"T50\n", received)
+            client.send_stop()
+        finally:
+            client.disconnect(send_stop=True)
+            done.set()
+            thread.join(timeout=1)
+            listener.close()
+
     def test_invalid_real_can_does_not_silently_become_virtual(self):
         client = MotorSupervisorClient()
         with self.assertRaises(Exception):
-            client.connect(BackendConfig(backend="python_can", can_interface="virtual", can_channel="x"))
+            client.connect(BackendConfig(backend="python_can"))
         self.assertFalse(client.connected)
 
     def test_missing_heartbeat_latches_fault_and_zero(self):

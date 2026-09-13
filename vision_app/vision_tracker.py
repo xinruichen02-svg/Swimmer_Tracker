@@ -5,9 +5,6 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-import cv2
-
-
 class VisionInputError(ValueError):
     """Raised when a camera source or target selection is invalid."""
 
@@ -68,6 +65,7 @@ def parse_video_source(raw: str) -> VideoSource:
 
 
 def create_csrt_tracker():
+    import cv2
     if hasattr(cv2, "legacy") and hasattr(cv2.legacy, "TrackerCSRT_create"):
         return cv2.legacy.TrackerCSRT_create()
     if hasattr(cv2, "TrackerCSRT_create"):
@@ -106,6 +104,7 @@ class VisionTracker:
         return None if self._last_frame is None else self._last_frame.copy()
 
     def open(self, raw_source: str):
+        import cv2
         source = parse_video_source(raw_source)
         self.release()
         capture = cv2.VideoCapture(source.open_value)
@@ -124,6 +123,7 @@ class VisionTracker:
         return frame.copy()
 
     def select_target(self) -> TrackingMeasurement:
+        import cv2
         if self._last_frame is None:
             raise VisionInputError("请先打开摄像头")
         selection_frame = self._last_frame.copy()
@@ -195,6 +195,7 @@ class VisionTracker:
         *,
         max_offset_fraction: float = 0.45,
     ):
+        import cv2
         annotated = frame.copy()
         height, width = annotated.shape[:2]
         center_x = width // 2
@@ -237,6 +238,7 @@ class VisionTracker:
         self._last_bbox = None
 
     def release(self) -> None:
+        import cv2
         capture = self._capture
         self._capture = None
         if capture is not None:

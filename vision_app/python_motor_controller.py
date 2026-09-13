@@ -73,7 +73,9 @@ class PythonMotorController:
             raise MotorControlError("只有安全连接状态可以解锁")
         timestamp = time.monotonic() if now is None else now
         feedback = self.last_feedback or self.poll_feedback(0.0)
-        if feedback is None or timestamp - feedback.received_at > self.feedback_timeout_s:
+        if self.backend.supports_feedback and (
+            feedback is None or timestamp - feedback.received_at > self.feedback_timeout_s
+        ):
             raise MotorControlError("没有新鲜电机反馈，禁止解锁")
         try:
             self.backend.start()
@@ -97,7 +99,9 @@ class PythonMotorController:
         if self.state not in (MotorControlState.ARMED, MotorControlState.RUNNING):
             return feedback
         latest = self.last_feedback
-        if latest is None or max(0.0, timestamp - latest.received_at) > self.feedback_timeout_s:
+        if self.backend.supports_feedback and (
+            latest is None or max(0.0, timestamp - latest.received_at) > self.feedback_timeout_s
+        ):
             self.fault("电机反馈超时")
             return feedback
         dt = 0.01 if self._last_tick is None else max(0.001, min(0.1, timestamp - self._last_tick))
@@ -106,9 +110,11 @@ class PythonMotorController:
             if self.mode is MotorControlMode.DRIVER_PID:
                 output = self.target_rpm
             else:
+                if latest is None:
+                    raise MotorControlError("兼容 PID 模式需要电机反馈")
                 output = int(round(self.pid.update(self.target_rpm, latest.actual_rpm, dt)))
             self.backend.set_target_rpm(validate_target_rpm(output))
-        except (MotorBackendError, PidConfigurationError) as exc:
+        except (MotorBackendError, MotorControlError, PidConfigurationError) as exc:
             self.fault(f"控制输出失败: {exc}")
             return feedback
         self.last_output_rpm = output

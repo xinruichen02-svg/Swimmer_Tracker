@@ -25,6 +25,7 @@ class MotorFeedback:
 class MotorBackend(ABC):
     name = "unknown"
     is_real = True
+    supports_feedback = True
 
     @property
     @abstractmethod
