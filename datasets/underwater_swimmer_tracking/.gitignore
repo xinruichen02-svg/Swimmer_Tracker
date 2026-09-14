@@ -1,0 +1,6 @@
+videos/
+_source_cache/
+_qa/
+*.part
+*.ytdl
+
