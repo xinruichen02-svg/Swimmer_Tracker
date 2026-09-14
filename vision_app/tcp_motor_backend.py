@@ -12,7 +12,7 @@ from vision_app.motor_backend import (
     repeat_stop,
     validate_target_rpm,
 )
-from vision_app.motor_link import encode_start, encode_stop, encode_target_rpm
+from vision_app.motor_protocol import encode_start, encode_stop, encode_target_rpm
 
 
 class TcpMotorBackend(MotorBackend):

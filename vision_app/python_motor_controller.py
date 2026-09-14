@@ -5,7 +5,6 @@ import time
 from enum import Enum, auto
 
 from vision_app.motor_backend import MotorBackend, MotorBackendError, MotorFeedback, validate_target_rpm
-from vision_app.pid_compat import InoCompatiblePid, PidConfigurationError
 
 
 class MotorControlError(RuntimeError):
@@ -14,7 +13,6 @@ class MotorControlError(RuntimeError):
 
 class MotorControlMode(str, Enum):
     DRIVER_PID = "driver_pid"
-    INO_PID_COMPAT = "ino_pid_compat"
 
 
 class MotorControlState(Enum):
@@ -32,20 +30,17 @@ class PythonMotorController:
         *,
         mode: MotorControlMode = MotorControlMode.DRIVER_PID,
         feedback_timeout_s: float = 0.5,
-        pid: InoCompatiblePid | None = None,
     ) -> None:
         if not math.isfinite(feedback_timeout_s) or feedback_timeout_s <= 0.0:
             raise MotorControlError("反馈超时必须是正有限数")
         self.backend = backend
         self.mode = MotorControlMode(mode)
         self.feedback_timeout_s = feedback_timeout_s
-        self.pid = pid or InoCompatiblePid()
         self.state = MotorControlState.DISCONNECTED
         self.target_rpm = 0
         self.last_output_rpm = 0
         self.last_feedback: MotorFeedback | None = None
         self.fault_reason: str | None = None
-        self._last_tick: float | None = None
 
     def connect(self) -> None:
         if self.state is not MotorControlState.DISCONNECTED:
@@ -59,8 +54,6 @@ class PythonMotorController:
         self.state = MotorControlState.CONNECTED_SAFE
         self.target_rpm = 0
         self.last_output_rpm = 0
-        self.pid.reset()
-        self._last_tick = None
 
     def poll_feedback(self, timeout: float = 0.0) -> MotorFeedback | None:
         feedback = self.backend.read_feedback(timeout)
@@ -84,8 +77,6 @@ class PythonMotorController:
             raise MotorControlError(f"启动失败: {exc}") from exc
         self.target_rpm = 0
         self.last_output_rpm = 0
-        self.pid.reset()
-        self._last_tick = timestamp
         self.state = MotorControlState.ARMED
 
     def set_target_rpm(self, rpm: int) -> None:
@@ -104,17 +95,10 @@ class PythonMotorController:
         ):
             self.fault("电机反馈超时")
             return feedback
-        dt = 0.01 if self._last_tick is None else max(0.001, min(0.1, timestamp - self._last_tick))
-        self._last_tick = timestamp
         try:
-            if self.mode is MotorControlMode.DRIVER_PID:
-                output = self.target_rpm
-            else:
-                if latest is None:
-                    raise MotorControlError("兼容 PID 模式需要电机反馈")
-                output = int(round(self.pid.update(self.target_rpm, latest.actual_rpm, dt)))
+            output = self.target_rpm
             self.backend.set_target_rpm(validate_target_rpm(output))
-        except (MotorBackendError, MotorControlError, PidConfigurationError) as exc:
+        except MotorBackendError as exc:
             self.fault(f"控制输出失败: {exc}")
             return feedback
         self.last_output_rpm = output
@@ -128,8 +112,6 @@ class PythonMotorController:
         finally:
             self.target_rpm = 0
             self.last_output_rpm = 0
-            self.pid.reset()
-            self._last_tick = None
             if self.state is not MotorControlState.DISCONNECTED:
                 self.state = MotorControlState.CONNECTED_SAFE
 
@@ -144,7 +126,6 @@ class PythonMotorController:
             pass
         self.target_rpm = 0
         self.last_output_rpm = 0
-        self.pid.reset()
         self.fault_reason = normalized
         self.state = MotorControlState.FAULT
 
@@ -165,4 +146,3 @@ class PythonMotorController:
             self.state = MotorControlState.DISCONNECTED
             self.target_rpm = 0
             self.last_output_rpm = 0
-            self.pid.reset()

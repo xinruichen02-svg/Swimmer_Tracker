@@ -5,7 +5,7 @@ import queue
 import threading
 import time
 
-from vision_app.motor_link import MotorLinkEvent, MotorTelemetry
+from vision_app.motor_events import MotorEvent, MotorTelemetry
 from vision_app.motor_supervisor import BackendConfig, supervisor_process
 
 
@@ -17,7 +17,7 @@ class MotorSupervisorClient:
     """GUI-side API. The child process is the only owner of a motor backend."""
 
     def __init__(self) -> None:
-        self.events: queue.Queue[MotorLinkEvent] = queue.Queue()
+        self.events: queue.Queue[MotorEvent] = queue.Queue()
         self._connection = None
         self._process = None
         self._monitor: threading.Thread | None = None
@@ -127,7 +127,7 @@ class MotorSupervisorClient:
                 feedback_at = status.get("feedback_at")
                 if actual is not None and feedback_at is not None:
                     self.events.put(
-                        MotorLinkEvent(
+                        MotorEvent(
                             "telemetry",
                             "收到监督进程电机反馈",
                             now,
@@ -139,7 +139,7 @@ class MotorSupervisorClient:
                             ),
                         )
                     )
-                self.events.put(MotorLinkEvent("status", str(status.get("state", "")), now))
+                self.events.put(MotorEvent("status", str(status.get("state", "")), now))
                 if kind == "READY":
                     self._connected = True
                     self._ready.set()
@@ -149,23 +149,16 @@ class MotorSupervisorClient:
                 fault = status.get("fault")
                 if fault and fault != self._reported_fault:
                     self._reported_fault = str(fault)
-                    self.events.put(MotorLinkEvent("error", str(fault), now))
+                    self.events.put(MotorEvent("error", str(fault), now))
                 elif not fault:
                     self._reported_fault = None
             elif kind == "ERROR":
                 self._startup_error = str(message.get("message") or "监督进程未知错误")
-                self.events.put(MotorLinkEvent("error", self._startup_error, now))
+                self.events.put(MotorEvent("error", self._startup_error, now))
                 self._ready.set()
-            elif kind == "PID_APPLIED":
-                self.events.put(MotorLinkEvent("notice", str(message.get("message") or "INO PID参数已发送"), now))
-            elif kind == "PID_REJECTED":
-                self.events.put(MotorLinkEvent("warning", str(message.get("message") or "PID参数未发送"), now))
 
     def send_target_rpm(self, rpm: int) -> None:
         self._send("TARGET", rpm=rpm)
-
-    def send_pid_tunings(self, kp: float, ki: float, kd: float) -> None:
-        self._send("PID", kp=kp, ki=ki, kd=kd)
 
     def send_start(self) -> None:
         self._send("ARM")

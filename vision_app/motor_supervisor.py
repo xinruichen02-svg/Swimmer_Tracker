@@ -149,7 +149,7 @@ def supervisor_process(
                 kind = message.get("kind")
                 sequence = message.get("sequence", -1)
                 sent_at = message.get("sent_at", now)
-                if kind in ("HEARTBEAT", "TARGET", "PID"):
+                if kind in ("HEARTBEAT", "TARGET"):
                     if (
                         isinstance(sequence, bool)
                         or not isinstance(sequence, int)
@@ -183,8 +183,6 @@ def supervisor_process(
                             MotorControlState.RUNNING,
                         ):
                             controller.set_target_rpm(target)
-                elif kind == "PID":
-                    _send(connection, "PID_REJECTED", message="TCP/virtual 后端不支持在线 PID 调参")
                 elif kind == "ARM":
                     try:
                         controller.arm(now)

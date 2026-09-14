@@ -1,7 +1,7 @@
 import unittest
 
 from vision_app.control_core import RelativeDisplacementEstimator, solve_motion
-from vision_app.motor_link import encode_target_rpm
+from vision_app.motor_protocol import encode_target_rpm
 
 
 class ClosedLoopPipelineTests(unittest.TestCase):

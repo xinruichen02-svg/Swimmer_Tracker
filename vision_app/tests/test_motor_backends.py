@@ -1,64 +1,7 @@
 import time
 import unittest
 
-from vision_app.arduino_serial_backend import ArduinoSerialBackend
-from vision_app.motor_backend import MotorBackendError
-from vision_app.motor_link import MotorLink
 from vision_app.virtual_motor_backend import VirtualMotorBackend
-
-
-class FakeSerial:
-    def __init__(self, **_kwargs):
-        self.is_open = True
-        self.writes = []
-
-    def write(self, payload):
-        self.writes.append(payload)
-        return len(payload)
-
-    def flush(self):
-        return None
-
-    def read(self, _size):
-        time.sleep(0.001)
-        return b""
-
-    def close(self):
-        self.is_open = False
-
-
-class ArduinoBackendTests(unittest.TestCase):
-    def test_adapter_preserves_ino_command_order(self):
-        serials = []
-        link = MotorLink(serial_factory=lambda **kwargs: serials.append(FakeSerial(**kwargs)) or serials[-1])
-        backend = ArduinoSerialBackend("COM_TEST", link=link)
-        backend.connect()
-        backend.activate()
-        self.assertNotIn(b"S\n", serials[0].writes)
-        backend.start()
-        backend.set_target_rpm(25)
-        backend.set_pid_tunings(1.0, 0.05, 0.02)
-        backend.stop()
-        self.assertEqual(
-            serials[0].writes,
-            [
-                b"P\n",
-                b"T0\n",
-                b"P\n",
-                b"T0\n",
-                b"S\n",
-                b"T25\n",
-                b"KP=1\n",
-                b"KI=0.05\n",
-                b"KD=0.02\n",
-                b"P\n",
-            ],
-        )
-        backend.close()
-
-    def test_adapter_rejects_missing_port(self):
-        with self.assertRaises(MotorBackendError):
-            ArduinoSerialBackend("").connect()
 
 
 class VirtualBackendTests(unittest.TestCase):
