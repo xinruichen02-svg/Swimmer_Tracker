@@ -11,13 +11,14 @@ class AppConfigTests(unittest.TestCase):
     def test_round_trip_preserves_backend_and_calibration_not_arm_state(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "settings.json"
-            settings = replace(ControlSettings(), backend="tcp", tcp_host="10.0.0.8", tcp_port=9000, rpm_per_mps=88.0)
+            settings = replace(ControlSettings(), backend="tcp", tcp_host="10.0.0.8", tcp_port=9000, rpm_per_mps=88.0, visual_processing_enabled=False)
             save_settings(settings, path)
             loaded = load_settings(path)
             self.assertEqual(loaded.backend, "tcp")
             self.assertEqual(loaded.tcp_host, "10.0.0.8")
             self.assertEqual(loaded.tcp_port, 9000)
             self.assertEqual(loaded.rpm_per_mps, 88.0)
+            self.assertFalse(loaded.visual_processing_enabled)
             self.assertNotIn("armed", path.read_text(encoding="utf-8"))
 
     def test_invalid_config_is_reported(self):

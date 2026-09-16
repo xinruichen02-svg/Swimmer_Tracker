@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import math
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -65,6 +66,20 @@ class FrameSource:
     def source(self) -> VideoSource | None:
         return self._source
 
+    @property
+    def fps(self) -> float:
+        """Return a sane source FPS for playback and recording."""
+        capture = self._capture
+        if capture is None or not hasattr(capture, "get"):
+            return 30.0
+        try:
+            import cv2
+
+            value = float(capture.get(cv2.CAP_PROP_FPS))
+        except (ImportError, TypeError, ValueError):
+            return 30.0
+        return value if math.isfinite(value) and 1.0 <= value <= 240.0 else 30.0
+
     def open(self, raw_source: str) -> FrameSample:
         source = parse_video_source(raw_source)
         self.close()
@@ -93,6 +108,17 @@ class FrameSource:
             raise FrameSourceError("摄像头断流或视频已经结束")
         height, width = frame.shape[:2]
         return FrameSample(frame, time.monotonic(), width, height)
+
+    def skip_frames(self, count: int) -> int:
+        """Advance an offline capture without decoding frames that are already late."""
+        if not self.is_open:
+            raise FrameSourceError("摄像头未打开")
+        skipped = 0
+        for _ in range(max(0, int(count))):
+            if not self._capture.grab():
+                break
+            skipped += 1
+        return skipped
 
     def close(self) -> None:
         capture = self._capture
