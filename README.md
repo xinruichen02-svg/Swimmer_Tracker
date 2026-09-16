@@ -131,7 +131,13 @@ run_app.bat
 cd D:\你的路径\Swimmer_Tracker
 py -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe vision_app\swimming_gui.py
+.\.venv\Scripts\python.exe -m vision_app
+```
+
+也兼容 IDE 的“运行 Python 文件”以及直接执行入口文件：
+
+```powershell
+.\.venv\Scripts\python.exe vision_app\swimming_app.py
 ```
 
 Linux/macOS：
@@ -139,8 +145,10 @@ Linux/macOS：
 ```bash
 cd /path/to/Swimmer_Tracker
 python -m pip install -r requirements.txt
-python vision_app/swimming_gui.py
+python -m vision_app
 ```
+
+上述启动方式只依赖项目根目录，不依赖仓库在电脑上的绝对路径。
 
 运行测试：
 

@@ -65,5 +65,5 @@ if ($SetupOnly) {
 }
 
 Write-Host "[Swimmer Tracker] Starting..." -ForegroundColor Green
-& $venvPython (Join-Path $PSScriptRoot "vision_app\swimming_gui.py")
+& $venvPython -m vision_app
 exit $LASTEXITCODE

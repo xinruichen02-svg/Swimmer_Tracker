@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import queue
+import sys
 import threading
 import time
 import tkinter as tk
@@ -8,6 +9,15 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
+
+# Support both the canonical package launch (`python -m vision_app`) and
+# direct execution from an IDE (`python vision_app/swimming_app.py`).  Python
+# otherwise puts only the script's directory on sys.path, so the top-level
+# `vision_app` package cannot be resolved when this file is run directly.
+if __package__ in (None, ""):
+    project_root = str(Path(__file__).resolve().parent.parent)
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
 
 from PIL import Image, ImageTk
 
