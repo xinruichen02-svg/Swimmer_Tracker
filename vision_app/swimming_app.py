@@ -373,22 +373,61 @@ class SwimControlApp:
         return VISUAL_PROCESSING_VALUES.get(self.visual_processing_var.get(), True)
 
     def _on_visual_processing_selected(self, _event=None) -> None:
-        if self.frame_source.is_open:
+        if self.safety.state in (AppState.RUNNING, AppState.FAULT):
             self.visual_processing_var.set(
                 VISUAL_PROCESSING_LABELS[self.settings.visual_processing_enabled]
             )
-            messagebox.showinfo("视觉处理", "请先关闭画面，再切换视觉处理方式并重新载入视频。")
+            messagebox.showinfo("视觉处理", "请先停止控制并处理故障，再切换视觉处理方式。")
             return
         enabled = self._visual_processing_enabled()
+        if enabled == self.settings.visual_processing_enabled:
+            return
         self.frame_processor.reset()
         self.settings = replace(self.settings, visual_processing_enabled=enabled)
+        save_warning = ""
         try:
             save_settings(self.settings)
         except AppConfigError as exc:
-            self.detail_var.set(f"视觉处理方式已切换，但保存失败：{exc}")
-            return
+            save_warning = f"；但保存失败：{exc}"
         label = VISUAL_PROCESSING_LABELS[enabled]
-        self.detail_var.set(f"已选择“{label}”；重新载入同一视频可进行对照实验。")
+        if not self.frame_source.is_open:
+            self.detail_var.set(f"已选择“{label}”；载入视频后将使用该处理方式{save_warning}。")
+            return
+
+        # A tracker must never continue across two differently processed image
+        # streams. Keep the current source open, but reset tracking and let the
+        # user select the target again on the current raw frame.
+        self.target_tracker.clear()
+        self.latest_sample = self.latest_raw_sample
+        self.latest_observation = self.latest_motion = None
+        self._prior_observation = None
+        self._reset_control_history(clear_target=True)
+        if self.gateway.connected:
+            try:
+                self.safety.target_cleared()
+            except StateTransitionError:
+                pass
+
+        source = self.frame_source.source
+        if source and source.offline_file:
+            self._analysis_session = True
+            self._media_paused = True
+            self._playback_next_due = None
+            self.source_kind_var.set("离线视频 · " + label)
+            self.media_status_var.set("处理方式已切换 · 请重新框选目标")
+        else:
+            self.source_kind_var.set("实时画面 · " + label)
+            self.media_status_var.set("采集中 · 请重新框选目标")
+
+        if self.latest_raw_sample is not None:
+            rendered = self.renderer.render(
+                self.latest_raw_sample,
+                None,
+                target_offset_px=self.settings.target_offset_px,
+                max_offset_fraction=self.settings.max_offset_fraction,
+            )
+            self._render_image(rendered)
+        self.detail_var.set(f"已切换为“{label}”；旧目标已清除，请重新框选{save_warning}。")
 
     def _settings_from_ui(self) -> ControlSettings:
         try:
@@ -940,9 +979,7 @@ class SwimControlApp:
         self.open_camera_button.configure(state="disabled" if blocked else "normal")
         self.upload_video_button.configure(state="disabled" if blocked else "normal")
         self.close_media_button.configure(state="normal" if self.frame_source.is_open and not blocked else "disabled")
-        self.visual_processing_box.configure(
-            state="disabled" if self.frame_source.is_open or blocked else "readonly"
-        )
+        self.visual_processing_box.configure(state="disabled" if blocked else "readonly")
         self.select_target_button.configure(state="normal" if self.frame_source.is_open and not blocked else "disabled")
         can_analyze = offline_open and self.target_tracker.locked and not blocked
         self.analysis_button.configure(

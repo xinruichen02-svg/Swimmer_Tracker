@@ -3,6 +3,7 @@ __pycache__/
 *$py.class
 .venv/
 .venv-python*/
+.venv.broken-*/
 
 # Generated working files and bundled third-party tools
 /tmp/

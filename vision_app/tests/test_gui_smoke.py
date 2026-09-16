@@ -131,6 +131,32 @@ class GuiSmokeTests(unittest.TestCase):
         finally:
             self.tear_down_app(app)
 
+    def test_visual_processing_can_switch_while_offline_video_is_open(self):
+        app = SwimControlApp()
+        try:
+            app.frame_source = FakeOfflineSource()
+            app.target_tracker = FakeTracker()
+            app._open_media(str(Path("sample.mp4").resolve()), pause_offline=True)
+            app.select_target()
+            self.assertTrue(app.target_tracker.locked)
+
+            app._refresh_status()
+            self.assertEqual(str(app.visual_processing_box.cget("state")), "readonly")
+
+            enabled = not app.settings.visual_processing_enabled
+            app.visual_processing_var.set("增强处理" if enabled else "不处理（对照）")
+            with patch("vision_app.swimming_app.save_settings"):
+                app._on_visual_processing_selected()
+
+            self.assertEqual(app.settings.visual_processing_enabled, enabled)
+            self.assertFalse(app.target_tracker.locked)
+            self.assertTrue(app._media_paused)
+            self.assertIs(app.latest_sample, app.latest_raw_sample)
+            self.assertIn("请重新框选", app.detail_var.get())
+            self.assertIn("请重新框选", app.media_status_var.get())
+        finally:
+            self.tear_down_app(app)
+
     def test_recording_uses_selected_save_path(self):
         app = SwimControlApp()
         writer = FakeWriter()
