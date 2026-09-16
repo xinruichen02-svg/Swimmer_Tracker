@@ -49,6 +49,20 @@ class TargetTracker:
         return self._tracker is not None
 
     def select(self, sample: FrameSample, roi: tuple[int, int, int, int] | None = None) -> TargetObservation:
+        integer_roi = self.select_bbox(sample, roi)
+        return self.initialize(sample, integer_roi)
+
+    def select_bbox(
+        self,
+        sample: FrameSample,
+        roi: tuple[int, int, int, int] | None = None,
+    ) -> tuple[int, int, int, int]:
+        """Select and validate a box without initializing the tracker.
+
+        The caller may use the returned box to construct a target-guided frame
+        before CSRT sees its first training sample.
+        """
+
         if roi is None:
             selector = self._roi_selector
             if selector is None:
@@ -66,6 +80,17 @@ class TargetTracker:
         integer_roi = tuple(int(round(value)) for value in roi)
         if integer_roi == (0, 0, 0, 0):
             raise TargetSelectionCancelled("已取消目标框选")
+        self._validate_bbox(integer_roi, sample.width, sample.height)
+        return integer_roi
+
+    def initialize(
+        self,
+        sample: FrameSample,
+        bbox: tuple[int, int, int, int],
+    ) -> TargetObservation:
+        """Initialize CSRT on the exact frame it will track subsequently."""
+
+        integer_roi = tuple(int(round(value)) for value in bbox)
         self._validate_bbox(integer_roi, sample.width, sample.height)
         tracker = self._tracker_factory()
         result = tracker.init(sample.image, integer_roi)

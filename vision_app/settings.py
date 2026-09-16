@@ -43,8 +43,11 @@ class ControlSettings:
     telemetry_timeout_s: float = 0.35
     command_interval_s: float = 0.05
     max_offset_fraction: float = 0.45
+    visual_processing_enabled: bool = True
 
     def validated(self) -> "ControlSettings":
+        if not isinstance(self.visual_processing_enabled, bool):
+            raise SettingsError("visual_processing_enabled 必须是布尔值")
         if self.backend not in ("virtual", "tcp"):
             raise SettingsError("backend 必须是 virtual 或 tcp")
         if not isinstance(self.tcp_host, str) or not self.tcp_host.strip():

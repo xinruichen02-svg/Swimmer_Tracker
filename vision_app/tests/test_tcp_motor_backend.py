@@ -44,4 +44,5 @@ class TcpBackendTests(unittest.TestCase):
         deadline = time.monotonic() + 1
         while self.backend.connected and time.monotonic() < deadline: time.sleep(0.01)
         with self.assertRaises(MotorBackendError): self.backend.read_feedback()
-        self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        # Keep tearDown idempotent on Windows builds without AF_UNIX.
+        self.server = socket.socket()
